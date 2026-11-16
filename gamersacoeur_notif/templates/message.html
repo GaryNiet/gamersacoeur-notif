@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2 class="{{ 'ok' if ok else 'err' }}">{{ 'C\'est tout bon !' if ok else 'Oups' }}</h2>
+  <p>{{ text }}</p>
+</div>
+{% endblock %}

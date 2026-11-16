@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Salut {{ streamer.name }} !</h1>
+<div class="card">
+  <p>Connecte ton compte Streamlabs pour recevoir les dons TWINT de l'événement dans ton Alert Box.</p>
+  <p class="muted">L'application demande uniquement le droit de créer des dons et des alertes sur ton compte.
+  Tu peux révoquer l'accès à tout moment dans Streamlabs &rarr; Settings &rarr; Connected Apps.</p>
+  <p><a class="btn big" href="{{ url }}">Se connecter avec Streamlabs</a></p>
+</div>
+{% endblock %}

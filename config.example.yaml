@@ -1,0 +1,75 @@
+# Copy to config.yaml and fill in.  ${VAR} is replaced by the environment
+# variable VAR, so secrets can stay out of this file.
+
+# Used to sign streamer links and sessions. Generate one with:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+secret_key: ${GAC_SECRET_KEY}
+# Password for /admin (any username works).
+admin_password: ${GAC_ADMIN_PASSWORD}
+
+database: gamersacoeur.sqlite3
+host: 0.0.0.0
+port: 8000
+
+mail:
+  # Gmail: imap.gmail.com + an App Password (Google account > Security >
+  # 2-Step Verification > App passwords).  Infomaniak: mail.infomaniak.com.
+  # Outlook/Hotmail: outlook.office365.com
+  host: imap.gmail.com
+  port: 993
+  username: dons@example.ch
+  password: ${GAC_MAIL_PASSWORD}
+  folder: INBOX
+  poll_seconds: 15
+  # Only emails matching ALL of these filters (any entry in each list,
+  # case-insensitive substring) are treated as donations. Leave a list empty
+  # to disable that filter.
+  from_contains: ["noreply@payment-provider.example"]
+  subject_contains: ["Nouveau don", "New donation"]
+  # false = on the very first start, ignore emails already in the mailbox.
+  process_existing: false
+
+# How to read a donation email. Each entry is a regular expression applied to
+# the subject + body text; the first (...) group is the value.
+# !! Adapt these once you have a real email: save it as .eml and run
+#      python -m gamersacoeur_notif parse sample.eml
+parsing:
+  amount: 'Montant\s*:?\s*(?:CHF)?\s*([\d''.,’ ]+)'
+  donor: '^(?:Nom|Donateur|Name)\s*:\s*(.+)$'
+  message: '^Message\s*:\s*(.+)$'
+  # Where to look for the streamer's name/keyword. Remove this line to search
+  # the whole email (subject + body).
+  streamer: '^(?:Streamer|Pour|Référence|Reference)\s*:\s*(.+)$'
+  currency: CHF
+  default_donor: Anonyme
+
+streamlabs:
+  # Register an app at https://streamlabs.com/dashboard#/settings/api-settings
+  # ("Register an App"), and set its redirect URI to exactly redirect_uri below.
+  client_id: ${STREAMLABS_CLIENT_ID}
+  client_secret: ${STREAMLABS_CLIENT_SECRET}
+  redirect_uri: https://notif.example.ch/callback
+  # donation = real Streamlabs donation (donation alert + recent events/goals)
+  # alert    = alert box popup only, nothing recorded
+  mode: donation
+  # Used when mode is "alert". *text* is highlighted by Streamlabs.
+  alert_message: "*{donor}* a donné *{amount} {currency}* via TWINT !"
+  alert_user_message: "{message}"
+  # true = log only, send nothing (good for testing the email parsing)
+  dry_run: false
+
+# Every donation goes to the matched streamer AND to every "main: true" account.
+# A streamer is matched when one of its keywords appears (whole word, case and
+# accents ignored) in the "streamer" text above. If no one matches, the
+# donation goes to the main account only.
+streamers:
+  - slug: gamersacoeur
+    name: Gamers à Coeur
+    main: true
+    keywords: []          # empty = matches its slug only; it receives everything anyway
+  - slug: alice
+    name: Alice
+    keywords: [alice, alice_tv]
+  - slug: bob
+    name: Bob
+    keywords: [bob, bobstream]
