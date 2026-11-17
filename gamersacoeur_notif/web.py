@@ -1,10 +1,10 @@
 """Web app: streamers connect their Streamlabs account, organisers monitor donations.
 
 Routes
-  /                          landing page
-  /connect/<slug>/<sig>      personal link sent to each streamer -> Streamlabs login
-  /callback                  Streamlabs OAuth redirect URI
-  /admin                     dashboard (HTTP basic auth, admin_password)
+  /           the one link sent to every streamer -> "Log in with Streamlabs"
+  /callback   Streamlabs OAuth redirect URI; links the account to the streamer
+              whose ``streamlabs_name`` matches, otherwise leaves it unassigned
+  /admin      dashboard (HTTP basic auth, admin_password)
 """
 
 from __future__ import annotations
@@ -23,11 +23,6 @@ from .db import Database
 from .notifier import Notifier
 
 
-def connect_signature(secret_key: str, slug: str) -> str:
-    return hmac.new(secret_key.encode(), f"connect:{slug}".encode(),
-                    hashlib.sha256).hexdigest()[:24]
-
-
 def public_base_url(cfg: Config) -> str:
     """Public URL of the app, derived from the Streamlabs redirect URI."""
     parts = urlsplit(cfg.streamlabs.redirect_uri)
@@ -35,8 +30,9 @@ def public_base_url(cfg: Config) -> str:
     return f"{parts.scheme}://{parts.netloc}{prefix}"
 
 
-def connect_link(cfg: Config, slug: str) -> str:
-    return f"{public_base_url(cfg)}/connect/{slug}/{connect_signature(cfg.secret_key, slug)}"
+def connect_link(cfg: Config) -> str:
+    """The single link to send to every streamer."""
+    return public_base_url(cfg) + "/"
 
 
 def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> Flask:
@@ -70,27 +66,18 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
     # --- streamer login ------------------------------------------------
     @app.get("/")
     def index():
-        return render_template("index.html")
-
-    @app.get("/connect/<slug>/<sig>")
-    def connect(slug, sig):
-        st = cfg.streamer(slug)
-        if st is None or not hmac.compare_digest(sig, connect_signature(cfg.secret_key, slug)):
-            abort(404)
         state = secrets.token_urlsafe(24)
         session["oauth_state"] = state
-        session["oauth_slug"] = slug
-        return render_template("connect.html", streamer=st, url=streamlabs.authorize_url(
+        return render_template("index.html", url=streamlabs.authorize_url(
             cfg.streamlabs.client_id, cfg.streamlabs.redirect_uri, state))
 
     @app.get("/callback")
     def callback():
         state = request.args.get("state", "")
-        slug = session.pop("oauth_slug", None)
         expected = session.pop("oauth_state", None)
-        if not slug or not expected or not hmac.compare_digest(state, expected):
-            return render_template("message.html", ok=False,
-                                   text="Session expirée. Rouvre ton lien personnel."), 400
+        if not expected or not hmac.compare_digest(state, expected):
+            return render_template("message.html", ok=False, text=(
+                "Session expirée. Rouvre le lien et réessaie.")), 400
         if "error" in request.args or "code" not in request.args:
             return render_template("message.html", ok=False,
                                    text="Connexion Streamlabs annulée ou refusée."), 400
@@ -99,31 +86,62 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
             tok = streamlabs.exchange_code(sl.client_id, sl.client_secret, sl.redirect_uri,
                                            request.args["code"])
         except streamlabs.StreamlabsError as exc:
-            app.logger.error("OAuth exchange failed for %s: %s", slug, exc)
+            app.logger.error("OAuth exchange failed: %s", exc)
             return render_template("message.html", ok=False,
                                    text="Streamlabs a refusé la connexion. Réessaie."), 502
-        name = streamlabs.get_user_name(tok["access_token"])
-        db.save_token(slug, tok["access_token"], tok.get("refresh_token"), name)
-        st = cfg.streamer(slug)
+
+        account_id, names = streamlabs.get_user(tok["access_token"])
+        if account_id is None:
+            # Streamlabs didn't tell us who this is: key the account on its token
+            # so the admin can still assign it by hand.
+            account_id = "token:" + hashlib.sha256(tok["access_token"].encode()).hexdigest()[:16]
+        display = names[0] if names else None
+        st = cfg.streamer_for_account(names)
+        acc_id = db.save_account(account_id, display, tok["access_token"],
+                                 tok.get("refresh_token"), slug=st.slug if st else None)
+        app.logger.info("Streamlabs account %s (%s) connected -> %s",
+                        account_id, ", ".join(names) or "?", st.slug if st else "unassigned")
+
+        # A known account keeps its link even if it wasn't matched by name this time.
+        linked = cfg.streamer(db.get_account(acc_id)["slug"] or "")
+        label = f" ({display})" if display else ""
+        if linked:
+            return render_template("message.html", ok=True, text=(
+                f"Merci {linked.name} ! Ton compte Streamlabs{label} est connecté. "
+                "Les dons TWINT apparaîtront dans ton Alert Box."))
         return render_template("message.html", ok=True, text=(
-            f"Merci {st.name} ! Ton compte Streamlabs{f' ({name})' if name else ''} est connecté. "
-            "Les dons TWINT apparaîtront dans ta Alert Box."))
+            f"Ton compte Streamlabs{label} est connecté, mais on ne sait pas encore à quel "
+            "streamer il correspond. Préviens l'organisation : elle va le valider de son côté."))
 
     # --- admin ---------------------------------------------------------
     @app.get("/admin")
     @require_admin
     def admin():
         tokens = db.all_tokens()
-        streamers = [{
-            "cfg": st,
-            "token": tokens.get(st.slug),
-            "link": connect_link(cfg, st.slug),
-        } for st in cfg.streamers]
+        streamers = [{"cfg": st, "token": tokens.get(st.slug)} for st in cfg.streamers]
         donations = [{"row": d, "deliveries": db.deliveries_for(d["id"])}
                      for d in db.recent_donations(100)]
         return render_template(
             "admin.html", cfg=cfg, streamers=streamers, donations=donations,
+            unassigned=db.unassigned_accounts(), link=connect_link(cfg),
             last_poll=db.get_state("last_poll"), worker_error=db.get_state("worker_error"))
+
+    @app.post("/admin/assign/<int:account_id>")
+    @require_admin
+    def admin_assign(account_id):
+        slug = request.form.get("slug", "")
+        if cfg.streamer(slug) is None or db.get_account(account_id) is None:
+            abort(404)
+        db.assign_account(account_id, slug)
+        flash(f"Compte attribué à {cfg.streamer(slug).name}", "ok")
+        return redirect(url_for("admin"))
+
+    @app.post("/admin/forget/<int:account_id>")
+    @require_admin
+    def admin_forget(account_id):
+        db.delete_account(account_id)
+        flash("Compte supprimé", "ok")
+        return redirect(url_for("admin"))
 
     @app.post("/admin/test/<slug>")
     @require_admin
@@ -137,7 +155,9 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
     @app.post("/admin/disconnect/<slug>")
     @require_admin
     def admin_disconnect(slug):
-        db.delete_token(slug)
+        acc = db.get_token(slug)
+        if acc is not None:
+            db.delete_account(acc["id"])
         flash(f"{slug} déconnecté", "ok")
         return redirect(url_for("admin"))
 

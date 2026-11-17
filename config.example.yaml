@@ -58,6 +58,12 @@ streamlabs:
   # true = log only, send nothing (good for testing the email parsing)
   dry_run: false
 
+# Every streamer gets the same link (the app's home page, see
+# "python -m gamersacoeur_notif link"). After they log in with Streamlabs,
+# their account is linked to the streamer below whose streamlabs_name matches
+# their Streamlabs (or connected Twitch/YouTube) display name, case-insensitive.
+# Accounts that match no one show up on /admin to be assigned by hand.
+#
 # Every donation goes to the matched streamer AND to every "main: true" account.
 # A streamer is matched when one of its keywords appears (whole word, case and
 # accents ignored) in the "streamer" text above. If no one matches, the
@@ -66,10 +72,13 @@ streamers:
   - slug: gamersacoeur
     name: Gamers à Coeur
     main: true
+    streamlabs_name: GamersACoeur
     keywords: []          # empty = matches its slug only; it receives everything anyway
   - slug: alice
     name: Alice
+    streamlabs_name: Alice_TV
     keywords: [alice, alice_tv]
   - slug: bob
     name: Bob
+    streamlabs_name: BobStream
     keywords: [bob, bobstream]

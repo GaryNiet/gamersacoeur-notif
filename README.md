@@ -16,7 +16,14 @@ Streamlabs Charity does not support TWINT. Our backup payment provider does, but
 
 ## How streamers log in
 
-Each streamer gets a **personal link** (`/connect/<slug>/<signature>`). Opening it sends them to "Log in with Streamlabs". After they approve, their token is saved and alerts start showing in their normal Alert Box. Nothing else needs setting up in OBS. The links are signed, so nobody can link their own account in place of someone else's. Streamers only need to connect **once**, before the event; tokens are kept in the SQLite database.
+Every streamer gets the **same link**: the app's home page (`python -m gamersacoeur_notif link` prints it). They click **Se connecter avec Streamlabs** and approve, and that's it. There is no account or password on the app's side.
+
+After login, the app asks Streamlabs who the account is. It links the account to the streamer whose `streamlabs_name` in `config.yaml` matches the Streamlabs name or a connected Twitch/YouTube name. Matching ignores case.
+
+- **Matched**: the streamer sees "Merci Alice !" and starts receiving alerts.
+- **No match**, for example a typo in the config or a viewer who found the link: the account shows under **Comptes à attribuer** on `/admin` and receives nothing. You pick the right streamer from a dropdown, or delete the account.
+
+Tokens are stored in the SQLite database, so each streamer connects **once**, before the event. Reconnecting later just refreshes the token and keeps the assignment.
 
 ## How a donation is routed
 
@@ -72,10 +79,10 @@ export GAC_ADMIN_PASSWORD=...  GAC_MAIL_PASSWORD=...
 export STREAMLABS_CLIENT_ID=...  STREAMLABS_CLIENT_SECRET=...
 
 .venv/bin/python -m gamersacoeur_notif run      # web app + mailbox watcher
-.venv/bin/python -m gamersacoeur_notif links    # personal links to send to streamers
+.venv/bin/python -m gamersacoeur_notif link     # the link to send to all streamers
 ```
 
-`GAC_SECRET_KEY` signs the personal links, so the links change if the key changes.
+`GAC_SECRET_KEY` signs the login sessions. Keep it fixed between restarts.
 
 The web app has to be reachable **from the streamers' browsers** for the login step. Choose one of these:
 
@@ -87,7 +94,7 @@ Admin dashboard: `https://<domain>/admin`. The username can be anything; the pas
 ### Before the stream: checklist
 
 - [ ] `parse` gives the right result on a real email.
-- [ ] Every streamer shows **connected** on `/admin`.
+- [ ] Every streamer shows **connected** on `/admin`, and nothing is left under *Comptes à attribuer*.
 - [ ] Press **Test** for each streamer and check the alert appears in their OBS Alert Box.
 - [ ] Make a real small TWINT donation and check that it arrives in under 30 s.
 

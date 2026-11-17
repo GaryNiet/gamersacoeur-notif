@@ -8,11 +8,15 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS tokens (
-    slug TEXT PRIMARY KEY,
+-- One row per Streamlabs account that logged in. slug is NULL while the
+-- account is not (yet) linked to a streamer of the config.
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    streamlabs_id TEXT UNIQUE NOT NULL,
+    streamlabs_name TEXT,
+    slug TEXT UNIQUE,
     access_token TEXT NOT NULL,
     refresh_token TEXT,
-    streamlabs_name TEXT,
     connected_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS state (
@@ -76,30 +80,67 @@ class Database:
             c.execute("INSERT INTO state(key, value) VALUES(?, ?) "
                       "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
-    # --- tokens ----------------------------------------------------------
-    def save_token(self, slug, access_token, refresh_token=None, streamlabs_name=None):
+    # --- Streamlabs accounts --------------------------------------------
+    def save_account(self, streamlabs_id, streamlabs_name, access_token, refresh_token,
+                     slug=None) -> int:
+        """Insert or update an account (keyed by its Streamlabs id).
+
+        If ``slug`` is given the account is linked to that streamer (and any
+        other account linked to it is unlinked). If not, an existing link is kept.
+        """
         with self._conn() as c:
+            if slug:
+                c.execute("UPDATE accounts SET slug=NULL WHERE slug=? AND streamlabs_id<>?",
+                          (slug, streamlabs_id))
             c.execute(
-                "INSERT INTO tokens(slug, access_token, refresh_token, streamlabs_name, connected_at) "
-                "VALUES(?, ?, ?, ?, ?) ON CONFLICT(slug) DO UPDATE SET "
+                "INSERT INTO accounts(streamlabs_id, streamlabs_name, slug, access_token, "
+                "refresh_token, connected_at) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(streamlabs_id) DO UPDATE SET "
+                "streamlabs_name=COALESCE(excluded.streamlabs_name, accounts.streamlabs_name), "
+                "slug=COALESCE(excluded.slug, accounts.slug), "
                 "access_token=excluded.access_token, "
-                "refresh_token=COALESCE(excluded.refresh_token, tokens.refresh_token), "
-                "streamlabs_name=COALESCE(excluded.streamlabs_name, tokens.streamlabs_name), "
+                "refresh_token=COALESCE(excluded.refresh_token, accounts.refresh_token), "
                 "connected_at=excluded.connected_at",
-                (slug, access_token, refresh_token, streamlabs_name, now()),
-            )
+                (streamlabs_id, streamlabs_name, slug, access_token, refresh_token, now()))
+            return c.execute("SELECT id FROM accounts WHERE streamlabs_id=?",
+                             (streamlabs_id,)).fetchone()["id"]
+
+    def get_account(self, account_id: int) -> sqlite3.Row | None:
+        with self._conn() as c:
+            return c.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
 
     def get_token(self, slug: str) -> sqlite3.Row | None:
+        """The account linked to streamer ``slug`` (has access_token/refresh_token)."""
         with self._conn() as c:
-            return c.execute("SELECT * FROM tokens WHERE slug=?", (slug,)).fetchone()
+            return c.execute("SELECT * FROM accounts WHERE slug=?", (slug,)).fetchone()
 
     def all_tokens(self) -> dict[str, sqlite3.Row]:
         with self._conn() as c:
-            return {r["slug"]: r for r in c.execute("SELECT * FROM tokens")}
+            return {r["slug"]: r for r in c.execute("SELECT * FROM accounts WHERE slug IS NOT NULL")}
 
-    def delete_token(self, slug: str) -> None:
+    def unassigned_accounts(self) -> list[sqlite3.Row]:
         with self._conn() as c:
-            c.execute("DELETE FROM tokens WHERE slug=?", (slug,))
+            return c.execute("SELECT * FROM accounts WHERE slug IS NULL ORDER BY id").fetchall()
+
+    def assign_account(self, account_id: int, slug: str) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE accounts SET slug=NULL WHERE slug=?", (slug,))
+            c.execute("UPDATE accounts SET slug=? WHERE id=?", (slug, account_id))
+
+    def update_tokens(self, slug: str, access_token: str, refresh_token: str | None) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE accounts SET access_token=?, "
+                      "refresh_token=COALESCE(?, refresh_token) WHERE slug=?",
+                      (access_token, refresh_token, slug))
+
+    def delete_account(self, account_id: int) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+
+    def save_token(self, slug, access_token, refresh_token=None, streamlabs_name=None) -> int:
+        """Shortcut (tests/admin): link an account straight to a streamer."""
+        return self.save_account(f"manual:{slug}", streamlabs_name, access_token,
+                                 refresh_token, slug=slug)
 
     # --- donations -------------------------------------------------------
     def donation_exists(self, message_id: str) -> bool:

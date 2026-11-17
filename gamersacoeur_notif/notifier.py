@@ -55,7 +55,7 @@ class Notifier:
                     sl = self.cfg.streamlabs
                     new = self.api.refresh_token(sl.client_id, sl.client_secret,
                                                  sl.redirect_uri, tok["refresh_token"])
-                    self.db.save_token(slug, new["access_token"], new.get("refresh_token"))
+                    self.db.update_tokens(slug, new["access_token"], new.get("refresh_token"))
                     self._call(new["access_token"], donor, amount, currency, message)
                     return "sent", "after token refresh"
                 except streamlabs.StreamlabsError as exc2:

@@ -42,6 +42,10 @@ class Streamer:
     name: str
     keywords: list[str] = field(default_factory=list)
     main: bool = False
+    # Streamlabs (or linked Twitch/YouTube) display name of this streamer's
+    # account. When someone logs in with the shared link, their account is
+    # linked to the streamer whose streamlabs_name matches (case-insensitive).
+    streamlabs_name: str | None = None
 
 
 @dataclass
@@ -103,6 +107,12 @@ class Config:
 
     def streamer(self, slug: str) -> Streamer | None:
         return next((s for s in self.streamers if s.slug == slug), None)
+
+    def streamer_for_account(self, names: list[str]) -> Streamer | None:
+        """Streamer whose ``streamlabs_name`` is one of the account's names."""
+        wanted = {n.strip().casefold() for n in names if n}
+        return next((s for s in self.streamers
+                     if s.streamlabs_name and s.streamlabs_name.strip().casefold() in wanted), None)
 
     @property
     def main_streamers(self) -> list[Streamer]:

@@ -3,7 +3,7 @@
     python -m gamersacoeur_notif run            # web app + mailbox worker (normal use)
     python -m gamersacoeur_notif web            # web app only
     python -m gamersacoeur_notif worker         # mailbox worker only
-    python -m gamersacoeur_notif links          # print each streamer's personal connect link
+    python -m gamersacoeur_notif link           # print the link to send to all streamers
     python -m gamersacoeur_notif parse mail.eml # show what would be extracted from an email
 """
 
@@ -33,7 +33,7 @@ def main(argv=None) -> int:
     sub.add_parser("run")
     sub.add_parser("web")
     sub.add_parser("worker")
-    sub.add_parser("links")
+    sub.add_parser("link")
     p = sub.add_parser("parse")
     p.add_argument("eml", nargs="+", help=".eml file(s) (in Gmail: ⋮ > Download message)")
     args = ap.parse_args(argv)
@@ -67,9 +67,12 @@ def main(argv=None) -> int:
             print(text)
         return 0
 
-    if args.cmd == "links":
-        for st in cfg.streamers:
-            print(f"{st.name:20} {connect_link(cfg, st.slug)}")
+    if args.cmd == "link":
+        print(connect_link(cfg))
+        missing = [s.name for s in cfg.streamers if not s.streamlabs_name]
+        if missing:
+            print(f"Note: no streamlabs_name for {', '.join(missing)} - their accounts will "
+                  "need to be assigned by hand on /admin.", file=sys.stderr)
         return 0
 
     db = Database(cfg.database)

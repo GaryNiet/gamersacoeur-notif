@@ -60,20 +60,31 @@ def refresh_token(client_id, client_secret, redirect_uri, refresh) -> dict:
     })
 
 
-def get_user_name(access_token: str) -> str | None:
+def get_user(access_token: str) -> tuple[str | None, list[str]]:
+    """Return (account id, display names) of the logged-in account.
+
+    The names include the Streamlabs name and those of linked Twitch /
+    YouTube / ... accounts, so a streamer can be matched on any of them.
+    Returns (None, []) if Streamlabs doesn't answer.
+    """
     try:
         r = requests.get(f"{API}/user", headers={"Authorization": f"Bearer {access_token}"},
                          timeout=TIMEOUT)
         r.raise_for_status()
         data = r.json()
     except (requests.RequestException, ValueError):
-        return None
-    for key in ("streamlabs", "twitch", "youtube"):
-        info = data.get(key) or {}
-        name = info.get("display_name") or info.get("name") or info.get("title")
-        if name:
-            return name
-    return None
+        return None, []
+    account_id, names = None, []
+    for key, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        if key == "streamlabs" and info.get("id") is not None:
+            account_id = str(info["id"])
+        for field in ("display_name", "name", "username", "title"):
+            val = info.get(field)
+            if isinstance(val, str) and val and val not in names:
+                names.append(val)
+    return account_id, names
 
 
 def sanitize_donor_name(name: str, fallback: str = "Anonyme") -> str:
