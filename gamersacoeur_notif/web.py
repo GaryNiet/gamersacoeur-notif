@@ -38,7 +38,8 @@ def connect_link(cfg: Config) -> str:
 def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> Flask:
     app = Flask(__name__)
     app.secret_key = cfg.secret_key
-    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      SESSION_COOKIE_SECURE=cfg.streamlabs.redirect_uri.startswith("https:"))
     notifier = notifier or Notifier(cfg, db)
 
     # --- helpers -------------------------------------------------------

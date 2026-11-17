@@ -1,0 +1,24 @@
+[Unit]
+Description=Gamers a Coeur - TWINT emails to Streamlabs alerts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gac
+Group=gac
+WorkingDirectory=/var/lib/gamersacoeur-notif
+EnvironmentFile=/etc/gamersacoeur-notif/env
+Environment=PYTHONPATH=/opt/gamersacoeur-notif PYTHONUNBUFFERED=1
+ExecStart=/opt/gamersacoeur-notif/.venv/bin/python -m gamersacoeur_notif -c /etc/gamersacoeur-notif/config.yaml run
+Restart=always
+RestartSec=5
+
+# Hardening: the app can only write to its data directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/gamersacoeur-notif
+
+[Install]
+WantedBy=multi-user.target

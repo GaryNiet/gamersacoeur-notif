@@ -84,10 +84,7 @@ export STREAMLABS_CLIENT_ID=...  STREAMLABS_CLIENT_SECRET=...
 
 `GAC_SECRET_KEY` signs the login sessions. Keep it fixed between restarts.
 
-The web app has to be reachable **from the streamers' browsers** for the login step. Choose one of these:
-
-- a small VPS, Render, Railway, fly.io and so on, behind HTTPS;
-- your own PC plus a tunnel, e.g. `cloudflared tunnel --url http://localhost:8000`. Then set `redirect_uri` to the tunnel URL in both `config.yaml` and the Streamlabs app.
+The web app has to be reachable **from the streamers' browsers** for the login step, so in production it runs on a VPS. See **[deploy/README.md](deploy/README.md)** for the step-by-step guide: a subdomain in GoDaddy DNS, one install script, then systemd and Caddy with automatic HTTPS.
 
 Admin dashboard: `https://<domain>/admin`. The username can be anything; the password is `GAC_ADMIN_PASSWORD`.
 
