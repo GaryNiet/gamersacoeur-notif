@@ -19,6 +19,7 @@ from email import policy
 from .config import ConfigError, load_config
 from .db import Database
 from .mailbox import matches_filters
+from .notifier import Notifier
 from .parsing import email_text, find_streamer, parse_donation
 from .web import connect_link, create_app
 from .worker import Worker
@@ -73,12 +74,17 @@ def main(argv=None) -> int:
         return 0
 
     db = Database(cfg.database)
+    # One notifier shared by the mailbox worker and the web app, so that
+    # admin resends and tests go through the same per-streamer queues.
+    notifier = Notifier(cfg, db)
+    if args.cmd in ("run", "worker"):
+        notifier.resume_interrupted()
     if args.cmd == "worker":
-        Worker(cfg, db).run_forever()
+        Worker(cfg, db, notifier).run_forever()
         return 0
     if args.cmd == "run":
-        Worker(cfg, db).start_thread()
-    app = create_app(cfg, db)
+        Worker(cfg, db, notifier).start_thread()
+    app = create_app(cfg, db, notifier)
     try:
         from waitress import serve
     except ImportError:  # fall back to Flask's development server

@@ -114,11 +114,13 @@ Set `streamlabs.dry_run: true` to try the full email flow without sending anythi
 |---|---|
 | `streamlabs.mode: donation` | Creates a real Streamlabs donation. It shows as a donation alert and appears in recent events and donation-goal widgets. Note that it counts in the streamer's Streamlabs *tip* stats, not in Streamlabs Charity totals. |
 | `streamlabs.mode: alert` | Only shows an Alert Box popup, using `alert_message`. Nothing is recorded. |
+| `streamlabs.min_interval_seconds` | Minimum gap between two alerts on the **same** Streamlabs account (default 10 s). Emails that arrive together are queued per account and played in arrival order. Different streamers don't wait for each other, but the main account, which gets everything, plays them one by one. |
 | `mail.poll_seconds` | How often to check for new mail (default 15 s). |
 | `mail.process_existing` | `false`: on the first start, ignore emails already in the mailbox. |
 
 ## Reliability
 
+- Alerts are queued per account and spaced out (see `min_interval_seconds`). Reading emails never waits for the queue. A delivery shows **en file** on the dashboard until it's sent. If the app restarts with alerts still waiting, it re-queues them on startup.
 - The last processed IMAP UID and each email's Message-ID are stored, so restarts never cause duplicate alerts.
 - If a streamer isn't connected, or Streamlabs returns an error, the donation is marked `partial`/`failed` on the dashboard. **Renvoyer** sends it again only to the accounts that missed it.
 - If the amount can't be read, nothing is sent and the email is marked `unparsed`, so that a wrong amount never appears on stream.

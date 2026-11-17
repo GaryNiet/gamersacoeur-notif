@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 from decimal import Decimal
 
 from . import streamlabs
 from .config import Config, Streamer
 from .db import Database
+from .pacer import Pacer
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +19,14 @@ class Notifier:
         self.cfg = cfg
         self.db = db
         self.api = api
+        # One queue per streamer: alerts to the same account are spaced out.
+        self.pacer = Pacer(cfg.streamlabs.min_interval_seconds)
+        self._status_lock = threading.Lock()
+
+    def refresh_status(self, donation_id: int) -> None:
+        # Serialised so a stale computation can never overwrite a newer one.
+        with self._status_lock:
+            self.db.set_donation_status(donation_id, overall_status(self.db, donation_id))
 
     def targets(self, routed: Streamer | None) -> list[Streamer]:
         """Routed streamer first, then the main account(s), without duplicates."""
@@ -64,32 +74,62 @@ class Notifier:
 
     def deliver(self, donation_id: int, targets: list[Streamer], donor: str,
                 amount: Decimal, currency: str, message: str,
-                skip: set[str] = frozenset()) -> dict[str, str]:
-        results = {}
+                skip: set[str] = frozenset()) -> list[str]:
+        """Queue the donation for each target. Returns the names it was queued for.
+
+        Sending happens in the background, at most one alert every
+        ``min_interval_seconds`` per streamer; each delivery row goes from
+        'queued' to its final status, and the donation status follows.
+        """
+        queued = []
         for st in targets:
             if st.id in skip:
                 continue
-            status, detail = self.send_to(st.id, donor, amount, currency, message)
-            log.info("donation %s -> %s (#%s): %s %s", donation_id, st.name, st.id, status, detail)
-            self.db.add_delivery(donation_id, st.id, status, detail)
-            results[st.name] = status
-        return results
+            delivery_id = self.db.add_delivery(donation_id, st.id, "queued")
+            ahead = self.pacer.pending(st.id)
+            log.info("donation %s -> %s (#%s): queued (%s ahead)", donation_id, st.name, st.id,
+                     ahead)
 
-    def retry(self, donation_id: int) -> dict[str, str]:
-        """Resend a donation to every target that hasn't successfully received it."""
+            def job(st=st, delivery_id=delivery_id):
+                status, detail = self.send_to(st.id, donor, amount, currency, message)
+                log.info("donation %s -> %s (#%s): %s %s", donation_id, st.name, st.id,
+                         status, detail)
+                self.db.update_delivery(delivery_id, status, detail)
+                self.refresh_status(donation_id)
+                return status, detail
+
+            self.pacer.submit(st.id, job)
+            queued.append(st.name)
+        if queued:
+            self.refresh_status(donation_id)
+        return queued
+
+    def retry(self, donation_id: int) -> list[str]:
+        """Re-queue a donation for every target that hasn't received it (and isn't queued)."""
         row = self.db.get_donation(donation_id)
         if row is None or not row["amount"]:
-            return {}
+            return []
         routed = self.db.get_streamer(row["routed_to"].split(",")[0]) if row["routed_to"] else None
-        results = self.deliver(donation_id, self.targets(routed), row["donor"],
-                               Decimal(row["amount"]), row["currency"], row["message"] or "",
-                               skip=self.db.delivered_ids(donation_id))
-        self.db.set_donation_status(donation_id, overall_status(self.db, donation_id))
-        return results
+        return self.deliver(donation_id, self.targets(routed), row["donor"],
+                            Decimal(row["amount"]), row["currency"], row["message"] or "",
+                            skip=self.db.sent_or_queued_ids(donation_id))
 
-    def send_test(self, streamer_id: str) -> tuple[str, str]:
-        return self.send_to(streamer_id, "Test TWINT", Decimal("1.00"), self.cfg.parsing.currency,
-                            "Ceci est un test de Gamers à Coeur notif")
+    def resume_interrupted(self) -> None:
+        """After a restart: re-queue deliveries that were still waiting."""
+        for donation_id in self.db.donations_with_queued():
+            self.db.mark_queued_interrupted(donation_id)
+            names = self.retry(donation_id)
+            log.info("Resumed donation %s for %s", donation_id, ", ".join(names))
+
+    def send_test(self, streamer_id: str, timeout: float = 5) -> tuple[str, str]:
+        """Send a test alert, respecting the spacing. Waits up to ``timeout`` s."""
+        fut = self.pacer.submit(str(streamer_id), lambda: self.send_to(
+            str(streamer_id), "Test TWINT", Decimal("1.00"), self.cfg.parsing.currency,
+            "Ceci est un test de Gamers à Coeur notif"))
+        try:
+            return fut.result(timeout=timeout)
+        except TimeoutError:
+            return "queued", "will be sent after the alerts already waiting"
 
 
 def overall_status(db: Database, donation_id: int) -> str:
@@ -98,6 +138,8 @@ def overall_status(db: Database, donation_id: int) -> str:
         if statuses.get(d["streamer_id"]) != "sent":
             statuses[d["streamer_id"]] = d["status"]
     vals = set(statuses.values())
+    if "queued" in vals:
+        return "queued"
     if vals <= {"sent", "dry_run"}:
         return "sent"
     if vals & {"sent", "dry_run"}:

@@ -55,6 +55,9 @@ streamlabs:
   # Used when mode is "alert". *text* is highlighted by Streamlabs.
   alert_message: "*{donor}* a donné *{amount} {currency}* via TWINT !"
   alert_user_message: "{message}"
+  # Minimum seconds between two alerts on the same Streamlabs account.
+  # Emails that arrive together are queued and played one after the other.
+  min_interval_seconds: 10
   # true = log only, send nothing (good for testing the email parsing)
   dry_run: false
 

@@ -151,14 +151,15 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
             abort(404)
         status, detail = notifier.send_test(str(streamer_id))
         flash(f"Test {row['name']}: {status} {detail}",
-              "ok" if status in ("sent", "dry_run") else "err")
+              "ok" if status in ("sent", "dry_run", "queued") else "err")
         return redirect(url_for("admin"))
 
     @app.post("/admin/retry/<int:donation_id>")
     @require_admin
     def admin_retry(donation_id):
-        results = notifier.retry(donation_id)
-        flash(f"Don #{donation_id} renvoyé: {results or 'rien à renvoyer'}", "ok")
+        names = notifier.retry(donation_id)
+        flash(f"Don #{donation_id} remis en file pour : {', '.join(names)}" if names
+              else f"Don #{donation_id} : rien à renvoyer", "ok")
         return redirect(url_for("admin"))
 
     return app

@@ -1,3 +1,4 @@
+import time
 from decimal import Decimal
 from email.message import EmailMessage
 from pathlib import Path
@@ -40,9 +41,11 @@ class FakeAPI:
 
     def __init__(self):
         self.calls = []
-        self.fail_tokens = {}   # token -> StreamlabsError
+        self.times = []          # time.monotonic() of each call
+        self.fail_tokens = {}    # token -> StreamlabsError
 
     def _check(self, token):
+        self.times.append((token, time.monotonic()))
         if token in self.fail_tokens:
             raise self.fail_tokens[token]
 
@@ -77,6 +80,7 @@ def api():
 
 @pytest.fixture
 def notifier(cfg, db, api):
+    cfg.streamlabs.min_interval_seconds = 0   # pacing has its own tests
     return Notifier(cfg, db, api=api)
 
 

@@ -10,7 +10,7 @@ from email.utils import make_msgid
 from .config import Config
 from .db import Database, now
 from .mailbox import Mailbox, matches_filters
-from .notifier import Notifier, overall_status
+from .notifier import Notifier
 from .parsing import email_text, find_streamer, parse_donation
 
 log = logging.getLogger(__name__)
@@ -45,18 +45,18 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
         status="pending", detail=None if routed else "no streamer matched - main only")
     log.info("Donation #%s: %s %s from %s -> %s", donation_id, parsed.amount,
              parsed.currency, parsed.donor, routed.name if routed else "(main only)")
-    notifier.deliver(donation_id, notifier.targets(routed), parsed.donor, parsed.amount,
-                     parsed.currency, parsed.message)
-    db.set_donation_status(donation_id, overall_status(db, donation_id),
-                           None if routed else "no streamer matched - main only")
+    queued = notifier.deliver(donation_id, notifier.targets(routed), parsed.donor,
+                              parsed.amount, parsed.currency, parsed.message)
+    if not queued:
+        db.set_donation_status(donation_id, "failed", "no streamer and no main account to notify")
     return donation_id
 
 
 class Worker:
-    def __init__(self, cfg: Config, db: Database):
+    def __init__(self, cfg: Config, db: Database, notifier: Notifier | None = None):
         self.cfg = cfg
         self.db = db
-        self.notifier = Notifier(cfg, db)
+        self.notifier = notifier or Notifier(cfg, db)
         self._stop = threading.Event()
 
     def stop(self) -> None:

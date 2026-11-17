@@ -180,8 +180,9 @@ class Database:
             return cur.lastrowid
 
     def set_donation_status(self, donation_id: int, status: str, detail: str | None = None):
+        """Update the status; the detail is only replaced when one is given."""
         with self._conn() as c:
-            c.execute("UPDATE donations SET status=?, detail=? WHERE id=?",
+            c.execute("UPDATE donations SET status=?, detail=COALESCE(?, detail) WHERE id=?",
                       (status, detail, donation_id))
 
     def get_donation(self, donation_id: int) -> sqlite3.Row | None:
@@ -194,18 +195,36 @@ class Database:
                              (limit,)).fetchall()
 
     # --- deliveries ------------------------------------------------------
-    def add_delivery(self, donation_id, streamer_id, status, detail=None) -> None:
+    def add_delivery(self, donation_id, streamer_id, status, detail=None) -> int:
         with self._conn() as c:
-            c.execute("INSERT INTO deliveries(donation_id, streamer_id, status, detail, sent_at) "
-                      "VALUES(?,?,?,?,?)", (donation_id, str(streamer_id), status, detail, now()))
+            cur = c.execute(
+                "INSERT INTO deliveries(donation_id, streamer_id, status, detail, sent_at) "
+                "VALUES(?,?,?,?,?)", (donation_id, str(streamer_id), status, detail, now()))
+            return cur.lastrowid
+
+    def update_delivery(self, delivery_id: int, status: str, detail: str | None = None) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE deliveries SET status=?, detail=?, sent_at=? WHERE id=?",
+                      (status, detail, now(), delivery_id))
+
+    def donations_with_queued(self) -> list[int]:
+        with self._conn() as c:
+            rows = c.execute("SELECT DISTINCT donation_id FROM deliveries WHERE status='queued' "
+                             "ORDER BY donation_id").fetchall()
+        return [r["donation_id"] for r in rows]
+
+    def mark_queued_interrupted(self, donation_id: int) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE deliveries SET status='interrupted', detail='app restarted' "
+                      "WHERE donation_id=? AND status='queued'", (donation_id,))
 
     def deliveries_for(self, donation_id: int) -> list[sqlite3.Row]:
         with self._conn() as c:
             return c.execute("SELECT * FROM deliveries WHERE donation_id=? ORDER BY id",
                              (donation_id,)).fetchall()
 
-    def delivered_ids(self, donation_id: int) -> set[str]:
+    def sent_or_queued_ids(self, donation_id: int) -> set[str]:
         with self._conn() as c:
-            rows = c.execute("SELECT streamer_id FROM deliveries "
-                             "WHERE donation_id=? AND status='sent'", (donation_id,)).fetchall()
+            rows = c.execute("SELECT streamer_id FROM deliveries WHERE donation_id=? "
+                             "AND status IN ('sent', 'dry_run', 'queued')", (donation_id,)).fetchall()
         return {r["streamer_id"] for r in rows}

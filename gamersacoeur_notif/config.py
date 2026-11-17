@@ -88,6 +88,9 @@ class StreamlabsConfig:
     alert_user_message: str = "{message}"
     # When true nothing is sent to Streamlabs; deliveries are only logged.
     dry_run: bool = False
+    # Minimum time between two alerts on the same Streamlabs account. Emails
+    # arriving together are queued and played one after the other.
+    min_interval_seconds: float = 10
 
 
 @dataclass

@@ -15,8 +15,15 @@ def tokens(api):
     return [c[1] for c in api.calls]
 
 
+def process(cfg, db, notifier, msg):
+    """process_message + wait for the background send queues to finish."""
+    did = process_message(cfg, db, notifier, msg)
+    notifier.pacer.wait_idle()
+    return did
+
+
 def test_routed_donation_goes_to_streamer_and_main(cfg, db, notifier, api, people):
-    did = process_message(cfg, db, notifier, make_email(BODY))
+    did = process(cfg, db, notifier, make_email(BODY))
     assert tokens(api) == ["tok-bob", "tok-main"]
     kw = api.calls[0][2]
     assert kw["amount"] == Decimal("20.00") and kw["currency"] == "CHF"
@@ -26,60 +33,62 @@ def test_routed_donation_goes_to_streamer_and_main(cfg, db, notifier, api, peopl
 
 
 def test_unmatched_goes_to_main_only(cfg, db, notifier, api, people):
-    process_message(cfg, db, notifier, make_email("Montant : CHF 5\nPour : personne"))
+    process(cfg, db, notifier, make_email("Montant : CHF 5\nPour : personne"))
     assert tokens(api) == ["tok-main"]
 
 
 def test_disabled_streamer_not_routed(cfg, db, notifier, api, people):
     db.update_streamer(people["bob"].id, keywords=["bob"], main=False, enabled=False)
-    process_message(cfg, db, notifier, make_email(BODY))
+    process(cfg, db, notifier, make_email(BODY))
     assert tokens(api) == ["tok-main"]
 
 
 def test_edited_keywords_used(cfg, db, notifier, api, people):
     db.update_streamer(people["alice"].id, keywords=["bob"], main=False, enabled=True)
     db.update_streamer(people["bob"].id, keywords=["robert"], main=False, enabled=True)
-    process_message(cfg, db, notifier, make_email(BODY))
+    process(cfg, db, notifier, make_email(BODY))
     assert tokens(api) == ["tok-alice", "tok-main"]
 
 
 def test_several_main_accounts(cfg, db, notifier, api, people):
     db.update_streamer(people["alice"].id, keywords=["alice"], main=True, enabled=True)
-    process_message(cfg, db, notifier, make_email(BODY))
+    process(cfg, db, notifier, make_email(BODY))
     assert tokens(api) == ["tok-bob", "tok-main", "tok-alice"]
 
 
 def test_duplicate_email_ignored(cfg, db, notifier, api, people):
-    assert process_message(cfg, db, notifier, make_email(BODY)) is not None
-    assert process_message(cfg, db, notifier, make_email(BODY)) is None
+    assert process(cfg, db, notifier, make_email(BODY)) is not None
+    assert process(cfg, db, notifier, make_email(BODY)) is None
     assert tokens(api).count("tok-main") == 1
 
 
 def test_filters(cfg, db, notifier, api, people):
-    assert process_message(cfg, db, notifier, make_email(BODY, sender="spam@x.com")) is None
-    assert process_message(cfg, db, notifier, make_email(BODY, subject="Newsletter")) is None
+    assert process(cfg, db, notifier, make_email(BODY, sender="spam@x.com")) is None
+    assert process(cfg, db, notifier, make_email(BODY, subject="Newsletter")) is None
     assert api.calls == []
 
 
 def test_unparsed_amount_not_sent(cfg, db, notifier, api, people):
-    did = process_message(cfg, db, notifier, make_email("Pas de montant ici"))
+    did = process(cfg, db, notifier, make_email("Pas de montant ici"))
     assert db.get_donation(did)["status"] == "unparsed"
     assert api.calls == []
 
 
 def test_error_then_retry_only_missing(cfg, db, notifier, api, people):
     api.fail_tokens["tok-bob"] = StreamlabsError("boom", 500)
-    did = process_message(cfg, db, notifier, make_email(BODY))
+    did = process(cfg, db, notifier, make_email(BODY))
     assert db.get_donation(did)["status"] == "partial"
     del api.fail_tokens["tok-bob"]
-    assert notifier.retry(did) == {"Bob": "sent"}            # main is not re-sent
+    assert notifier.retry(did) == ["Bob"]                   # main is not re-sent
+    notifier.pacer.wait_idle()
     assert db.get_donation(did)["status"] == "sent"
+    assert notifier.retry(did) == []
     assert tokens(api) == ["tok-main", "tok-bob"]
 
 
 def test_deleted_streamer(cfg, db, notifier, api, people):
     db.delete_streamer(people["main"].id)
-    process_message(cfg, db, notifier, make_email(BODY))
+    process(cfg, db, notifier, make_email(BODY))
     assert tokens(api) == ["tok-bob"]
 
 
@@ -87,20 +96,20 @@ def test_token_refresh_on_401(cfg, db, notifier, api):
     main = db.add_test_streamer("Main", main=True, token="old")
     db.update_tokens(main.id, "old", "r1")
     api.fail_tokens["old"] = StreamlabsError("unauthorized", 401)
-    process_message(cfg, db, notifier, make_email("Montant: 3"))
+    process(cfg, db, notifier, make_email("Montant: 3"))
     assert tokens(api) == ["new-r1"]
     assert db.get_token(main.id)["access_token"] == "new-r1"
 
 
 def test_error_marks_failed(cfg, db, notifier, api, people):
     api.fail_tokens["tok-main"] = StreamlabsError("boom", 500)
-    did = process_message(cfg, db, notifier, make_email("Montant: 3"))
+    did = process(cfg, db, notifier, make_email("Montant: 3"))
     assert db.get_donation(did)["status"] == "failed"
 
 
 def test_alert_mode(cfg, db, notifier, api, people):
     cfg.streamlabs.mode = "alert"
-    process_message(cfg, db, notifier, make_email(BODY))
+    process(cfg, db, notifier, make_email(BODY))
     kind, _, kw = api.calls[0]
     assert kind == "alert"
     assert kw["message"] == "*Jean* a donné *20.00 CHF* via TWINT !"
@@ -109,7 +118,7 @@ def test_alert_mode(cfg, db, notifier, api, people):
 
 def test_dry_run(cfg, db, notifier, api, people):
     cfg.streamlabs.dry_run = True
-    did = process_message(cfg, db, notifier, make_email(BODY))
+    did = process(cfg, db, notifier, make_email(BODY))
     assert api.calls == []
     assert {d["status"] for d in db.deliveries_for(did)} == {"dry_run"}
     assert db.get_donation(did)["status"] == "sent"
