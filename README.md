@@ -14,20 +14,31 @@ Streamlabs Charity does not support TWINT. Our backup payment provider does, but
                                                                              └──► Streamlabs (main account)
 ```
 
-## How streamers log in
+## How streamers sign up
 
-Every streamer gets the **same link**: the app's home page (`python -m gamersacoeur_notif link` prints it). They click **Se connecter avec Streamlabs** and approve, and that's it. There is no account or password on the app's side.
+Sign-up is **open**. Everyone gets the same link: the app's home page (`python -m gamersacoeur_notif link` prints it). A streamer clicks **Se connecter avec Streamlabs**, approves, and is in. There's no list to fill in beforehand and no account on the app's side.
 
-After login, the app asks Streamlabs who the account is. It links the account to the streamer whose `streamlabs_name` in `config.yaml` matches the Streamlabs name or a connected Twitch/YouTube name. Matching ignores case.
+On first login the app creates the streamer from their Streamlabs account. Their Streamlabs name and any connected Twitch/YouTube names become their **keywords**. The confirmation page tells them which names donors should mention.
 
-- **Matched**: the streamer sees "Merci Alice !" and starts receiving alerts.
-- **No match**, for example a typo in the config or a viewer who found the link: the account shows under **Comptes à attribuer** on `/admin` and receives nothing. You pick the right streamer from a dropdown, or delete the account.
+On `/admin` you can, for each streamer:
 
-Tokens are stored in the SQLite database, so each streamer connects **once**, before the event. Reconnecting later just refreshes the token and keeps the assignment.
+- edit the keywords,
+- tick **principal** (receives every donation),
+- untick **actif** (stops receiving alerts),
+- send a test alert,
+- delete them.
+
+Tokens are stored in the SQLite database, so each streamer connects **once**, before the event. Reconnecting later refreshes the token and keeps your edits.
+
+The **main account** is whichever account has `principal` ticked; there can be several. To make it automatic, put its Streamlabs/Twitch name in `main_accounts` in `config.yaml` before it connects.
+
+If you'd rather vet people, set `new_streamers_enabled: false`. Newcomers are then saved but receive nothing until you tick **actif**.
 
 ## How a donation is routed
 
-Set `parsing.streamer` to a regex that pulls the relevant part of the email, for example the `Pour : …` line or the payment reference. The app then looks in that text for each streamer's `keywords`. Matching is on whole words and ignores case and accents. If several keywords appear, the first mention wins. If nobody matches, the donation goes to the main account only, and the dashboard shows "no streamer matched".
+Set `parsing.streamer` to a regex that pulls the relevant part of the email, for example the `Pour : …` line or the payment reference. The app looks in that text for each active streamer's keywords. Matching is on whole words and ignores case and accents. If several keywords appear, the first mention wins. If nobody matches, the donation goes to the main account(s) only, and the dashboard shows "no streamer matched".
+
+Because sign-up is open, keep `parsing.streamer` narrow, so the app only searches the field where the donor names a streamer. Otherwise someone whose Twitch name is a common word, like "merci", could catch donations meant for others. The main account still gets every donation either way, and nobody can touch the money: at worst, an alert pops up on the wrong stream. You can fix the keywords or disable the streamer on `/admin`.
 
 ## Setup
 
@@ -91,7 +102,7 @@ Admin dashboard: `https://<domain>/admin`. The username can be anything; the pas
 ### Before the stream: checklist
 
 - [ ] `parse` gives the right result on a real email.
-- [ ] Every streamer shows **connected** on `/admin`, and nothing is left under *Comptes à attribuer*.
+- [ ] Every streamer appears on `/admin` with sensible keywords, and the main account has **principal** ticked.
 - [ ] Press **Test** for each streamer and check the alert appears in their OBS Alert Box.
 - [ ] Make a real small TWINT donation and check that it arrives in under 30 s.
 

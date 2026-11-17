@@ -28,8 +28,8 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
 
     subject = str(msg.get("Subject", ""))
     parsed = parse_donation(subject, email_text(msg), cfg.parsing)
-    routed = find_streamer(parsed.streamer_hint, cfg.streamers)
-    routed_to = [routed.slug] if routed else []
+    routed = find_streamer(parsed.streamer_hint, db.streamers())
+    routed_to = [routed.id] if routed else []
 
     if parsed.amount is None:
         donation_id = db.add_donation(
@@ -44,7 +44,7 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
         currency=parsed.currency, message=parsed.message, routed_to=routed_to,
         status="pending", detail=None if routed else "no streamer matched - main only")
     log.info("Donation #%s: %s %s from %s -> %s", donation_id, parsed.amount,
-             parsed.currency, parsed.donor, routed.slug if routed else "(main only)")
+             parsed.currency, parsed.donor, routed.name if routed else "(main only)")
     notifier.deliver(donation_id, notifier.targets(routed), parsed.donor, parsed.amount,
                      parsed.currency, parsed.message)
     db.set_donation_status(donation_id, overall_status(db, donation_id),

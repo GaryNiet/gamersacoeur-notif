@@ -46,7 +46,7 @@ Replace the `CHANGE_ME` values with the mailbox password and the Streamlabs clie
 sudo nano /etc/gamersacoeur-notif/config.yaml
 ```
 
-Set the mailbox, the email filters, the parsing rules and the list of streamers. `redirect_uri` is already set to your domain. In the Streamlabs app settings, set the **same** redirect URI: `https://notif.yourdomain.ch/callback`.
+Set the mailbox, the email filters, the parsing rules and `main_accounts` (the Streamlabs/Twitch name of the account that gets every donation). `redirect_uri` is already set to your domain. In the Streamlabs app settings, set the **same** redirect URI: `https://notif.yourdomain.ch/callback`.
 
 Then start the app and watch the logs:
 

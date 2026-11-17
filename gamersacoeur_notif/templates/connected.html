@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2 class="ok">C'est tout bon, {{ streamer.name }} !</h2>
+  <p>Ton compte Streamlabs est connecté. Les dons TWINT faits pour toi apparaîtront dans ton Alert Box.</p>
+  {% if names %}
+  <p>Pour que le don arrive chez toi, le donateur doit indiquer l'un de ces noms :
+    {% for n in names %}<strong>{{ n }}</strong>{{ ", " if not loop.last }}{% endfor %}.</p>
+  {% else %}
+  <p class="err">Streamlabs ne nous a pas donné ton nom : préviens l'organisation pour qu'elle configure ton compte.</p>
+  {% endif %}
+</div>
+{% endblock %}

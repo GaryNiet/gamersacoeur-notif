@@ -61,6 +61,16 @@ class FakeAPI:
 
 
 @pytest.fixture
+def people(db):
+    """Main account + two streamers, as if they had connected."""
+    return {
+        "main": db.add_test_streamer("GamersACoeur", ["gamersacoeur"], main=True, token="tok-main"),
+        "alice": db.add_test_streamer("Alice", ["alice", "alice_tv"], token="tok-alice"),
+        "bob": db.add_test_streamer("Bob", ["bob", "bobstream"], token="tok-bob"),
+    }
+
+
+@pytest.fixture
 def api():
     return FakeAPI()
 

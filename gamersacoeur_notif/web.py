@@ -2,8 +2,8 @@
 
 Routes
   /           the one link sent to every streamer -> "Log in with Streamlabs"
-  /callback   Streamlabs OAuth redirect URI; links the account to the streamer
-              whose ``streamlabs_name`` matches, otherwise leaves it unassigned
+  /callback   Streamlabs OAuth redirect URI; creates (or refreshes) the streamer,
+              with their Streamlabs/Twitch/YouTube names as routing keywords
   /admin      dashboard (HTTP basic auth, admin_password)
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 from functools import wraps
 from urllib.parse import urlsplit
@@ -93,73 +94,64 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
 
         account_id, names = streamlabs.get_user(tok["access_token"])
         if account_id is None:
-            # Streamlabs didn't tell us who this is: key the account on its token
-            # so the admin can still assign it by hand.
+            # Streamlabs didn't say who this is: key the streamer on its token;
+            # the admin can add keywords by hand.
             account_id = "token:" + hashlib.sha256(tok["access_token"].encode()).hexdigest()[:16]
         display = names[0] if names else None
-        st = cfg.streamer_for_account(names)
-        acc_id = db.save_account(account_id, display, tok["access_token"],
-                                 tok.get("refresh_token"), slug=st.slug if st else None)
-        app.logger.info("Streamlabs account %s (%s) connected -> %s",
-                        account_id, ", ".join(names) or "?", st.slug if st else "unassigned")
+        sid, created = db.upsert_streamer(
+            account_id, display, names, tok["access_token"], tok.get("refresh_token"),
+            main=cfg.is_main_account(names), enabled=cfg.new_streamers_enabled)
+        row = db.get_streamer_row(sid)
+        app.logger.info("Streamer #%s %s (%s) %s", sid, row["name"], ", ".join(names) or "?",
+                        "signed up" if created else "reconnected")
 
-        # A known account keeps its link even if it wasn't matched by name this time.
-        linked = cfg.streamer(db.get_account(acc_id)["slug"] or "")
-        label = f" ({display})" if display else ""
-        if linked:
+        if not row["enabled"]:
             return render_template("message.html", ok=True, text=(
-                f"Merci {linked.name} ! Ton compte Streamlabs{label} est connecté. "
-                "Les dons TWINT apparaîtront dans ton Alert Box."))
-        return render_template("message.html", ok=True, text=(
-            f"Ton compte Streamlabs{label} est connecté, mais on ne sait pas encore à quel "
-            "streamer il correspond. Préviens l'organisation : elle va le valider de son côté."))
+                f"Merci {row['name']} ! Ton compte Streamlabs est enregistré. L'organisation "
+                "doit encore l'activer : tu seras prévenu·e."))
+        return render_template("connected.html", streamer=row, names=json.loads(row["keywords"]))
 
     # --- admin ---------------------------------------------------------
     @app.get("/admin")
     @require_admin
     def admin():
-        tokens = db.all_tokens()
-        streamers = [{"cfg": st, "token": tokens.get(st.slug)} for st in cfg.streamers]
+        rows = db.streamer_rows()
+        names = {str(r["id"]): r["name"] for r in rows}
         donations = [{"row": d, "deliveries": db.deliveries_for(d["id"])}
                      for d in db.recent_donations(100)]
         return render_template(
-            "admin.html", cfg=cfg, streamers=streamers, donations=donations,
-            unassigned=db.unassigned_accounts(), link=connect_link(cfg),
+            "admin.html", cfg=cfg, streamers=rows, names=names, donations=donations,
+            link=connect_link(cfg), keywords=lambda r: ", ".join(json.loads(r["keywords"])),
+            has_main=any(r["is_main"] and r["enabled"] for r in rows),
             last_poll=db.get_state("last_poll"), worker_error=db.get_state("worker_error"))
 
-    @app.post("/admin/assign/<int:account_id>")
+    @app.post("/admin/streamer/<int:streamer_id>")
     @require_admin
-    def admin_assign(account_id):
-        slug = request.form.get("slug", "")
-        if cfg.streamer(slug) is None or db.get_account(account_id) is None:
+    def admin_update(streamer_id):
+        if db.get_streamer_row(streamer_id) is None:
             abort(404)
-        db.assign_account(account_id, slug)
-        flash(f"Compte attribué à {cfg.streamer(slug).name}", "ok")
+        keywords = [k.strip() for k in request.form.get("keywords", "").split(",") if k.strip()]
+        db.update_streamer(streamer_id, keywords=keywords, main="main" in request.form,
+                           enabled="enabled" in request.form)
+        flash("Streamer mis à jour", "ok")
         return redirect(url_for("admin"))
 
-    @app.post("/admin/forget/<int:account_id>")
+    @app.post("/admin/streamer/<int:streamer_id>/delete")
     @require_admin
-    def admin_forget(account_id):
-        db.delete_account(account_id)
-        flash("Compte supprimé", "ok")
+    def admin_delete(streamer_id):
+        db.delete_streamer(streamer_id)
+        flash("Streamer supprimé", "ok")
         return redirect(url_for("admin"))
 
-    @app.post("/admin/test/<slug>")
+    @app.post("/admin/test/<int:streamer_id>")
     @require_admin
-    def admin_test(slug):
-        if cfg.streamer(slug) is None:
+    def admin_test(streamer_id):
+        row = db.get_streamer_row(streamer_id)
+        if row is None:
             abort(404)
-        status, detail = notifier.send_test(slug)
-        flash(f"Test {slug}: {status} {detail}", "ok" if status in ("sent", "dry_run") else "err")
-        return redirect(url_for("admin"))
-
-    @app.post("/admin/disconnect/<slug>")
-    @require_admin
-    def admin_disconnect(slug):
-        acc = db.get_token(slug)
-        if acc is not None:
-            db.delete_account(acc["id"])
-        flash(f"{slug} déconnecté", "ok")
+        status, detail = notifier.send_test(str(streamer_id))
+        flash(f"Test {row['name']}: {status} {detail}",
+              "ok" if status in ("sent", "dry_run") else "err")
         return redirect(url_for("admin"))
 
     @app.post("/admin/retry/<int:donation_id>")

@@ -1,20 +1,25 @@
-"""SQLite storage: Streamlabs tokens, mailbox state, donations and deliveries."""
+"""SQLite storage: streamers (+ Streamlabs tokens), mailbox state, donations, deliveries."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from .config import Streamer
+
 SCHEMA = """
--- One row per Streamlabs account that logged in. slug is NULL while the
--- account is not (yet) linked to a streamer of the config.
-CREATE TABLE IF NOT EXISTS accounts (
+-- One row per streamer, created when they log in with Streamlabs.
+-- keywords: JSON list of words that route a donation email to them.
+CREATE TABLE IF NOT EXISTS streamers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     streamlabs_id TEXT UNIQUE NOT NULL,
-    streamlabs_name TEXT,
-    slug TEXT UNIQUE,
+    name TEXT NOT NULL,
+    keywords TEXT NOT NULL DEFAULT '[]',
+    is_main INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
     access_token TEXT NOT NULL,
     refresh_token TEXT,
     connected_at TEXT NOT NULL
@@ -39,7 +44,7 @@ CREATE TABLE IF NOT EXISTS donations (
 CREATE TABLE IF NOT EXISTS deliveries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     donation_id INTEGER,
-    slug TEXT NOT NULL,
+    streamer_id TEXT NOT NULL,
     status TEXT NOT NULL,
     detail TEXT,
     sent_at TEXT NOT NULL
@@ -80,67 +85,82 @@ class Database:
             c.execute("INSERT INTO state(key, value) VALUES(?, ?) "
                       "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
-    # --- Streamlabs accounts --------------------------------------------
-    def save_account(self, streamlabs_id, streamlabs_name, access_token, refresh_token,
-                     slug=None) -> int:
-        """Insert or update an account (keyed by its Streamlabs id).
+    # --- streamers ------------------------------------------------------
+    def upsert_streamer(self, streamlabs_id: str, name: str | None, keywords: list[str],
+                        access_token: str, refresh_token: str | None, *, main: bool = False,
+                        enabled: bool = True) -> tuple[int, bool]:
+        """Create the streamer on first login, or refresh their tokens.
 
-        If ``slug`` is given the account is linked to that streamer (and any
-        other account linked to it is unlinked). If not, an existing link is kept.
+        On a re-login, keywords / main / enabled set by the admin are kept.
+        Returns (id, created).
         """
         with self._conn() as c:
-            if slug:
-                c.execute("UPDATE accounts SET slug=NULL WHERE slug=? AND streamlabs_id<>?",
-                          (slug, streamlabs_id))
-            c.execute(
-                "INSERT INTO accounts(streamlabs_id, streamlabs_name, slug, access_token, "
-                "refresh_token, connected_at) VALUES(?,?,?,?,?,?) "
-                "ON CONFLICT(streamlabs_id) DO UPDATE SET "
-                "streamlabs_name=COALESCE(excluded.streamlabs_name, accounts.streamlabs_name), "
-                "slug=COALESCE(excluded.slug, accounts.slug), "
-                "access_token=excluded.access_token, "
-                "refresh_token=COALESCE(excluded.refresh_token, accounts.refresh_token), "
-                "connected_at=excluded.connected_at",
-                (streamlabs_id, streamlabs_name, slug, access_token, refresh_token, now()))
-            return c.execute("SELECT id FROM accounts WHERE streamlabs_id=?",
-                             (streamlabs_id,)).fetchone()["id"]
+            row = c.execute("SELECT id FROM streamers WHERE streamlabs_id=?",
+                            (streamlabs_id,)).fetchone()
+            if row:
+                c.execute("UPDATE streamers SET name=COALESCE(?, name), access_token=?, "
+                          "refresh_token=COALESCE(?, refresh_token), connected_at=?, "
+                          "is_main=MAX(is_main, ?) WHERE id=?",
+                          (name, access_token, refresh_token, now(), int(main), row["id"]))
+                return row["id"], False
+            cur = c.execute(
+                "INSERT INTO streamers(streamlabs_id, name, keywords, is_main, enabled, "
+                "access_token, refresh_token, connected_at) VALUES(?,?,?,?,?,?,?,?)",
+                (streamlabs_id, name or "(nom inconnu)", json.dumps(keywords), int(main),
+                 int(enabled), access_token, refresh_token, now()))
+            return cur.lastrowid, True
 
-    def get_account(self, account_id: int) -> sqlite3.Row | None:
+    @staticmethod
+    def _to_streamer(row: sqlite3.Row) -> Streamer:
+        return Streamer(id=str(row["id"]), name=row["name"],
+                        keywords=tuple(json.loads(row["keywords"])), main=bool(row["is_main"]))
+
+    def streamers(self) -> list[Streamer]:
+        """Enabled streamers, in sign-up order."""
         with self._conn() as c:
-            return c.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+            rows = c.execute("SELECT * FROM streamers WHERE enabled=1 ORDER BY id").fetchall()
+        return [self._to_streamer(r) for r in rows]
 
-    def get_token(self, slug: str) -> sqlite3.Row | None:
-        """The account linked to streamer ``slug`` (has access_token/refresh_token)."""
+    def main_streamers(self) -> list[Streamer]:
+        return [s for s in self.streamers() if s.main]
+
+    def get_streamer(self, streamer_id) -> Streamer | None:
+        row = self.get_streamer_row(streamer_id)
+        return self._to_streamer(row) if row and row["enabled"] else None
+
+    def get_streamer_row(self, streamer_id) -> sqlite3.Row | None:
         with self._conn() as c:
-            return c.execute("SELECT * FROM accounts WHERE slug=?", (slug,)).fetchone()
+            return c.execute("SELECT * FROM streamers WHERE id=?", (streamer_id,)).fetchone()
 
-    def all_tokens(self) -> dict[str, sqlite3.Row]:
+    def streamer_rows(self) -> list[sqlite3.Row]:
         with self._conn() as c:
-            return {r["slug"]: r for r in c.execute("SELECT * FROM accounts WHERE slug IS NOT NULL")}
+            return c.execute("SELECT * FROM streamers ORDER BY is_main DESC, id").fetchall()
 
-    def unassigned_accounts(self) -> list[sqlite3.Row]:
+    def get_token(self, streamer_id) -> sqlite3.Row | None:
+        """Row with access_token / refresh_token, or None if unknown."""
+        return self.get_streamer_row(streamer_id)
+
+    def update_tokens(self, streamer_id, access_token: str, refresh_token: str | None) -> None:
         with self._conn() as c:
-            return c.execute("SELECT * FROM accounts WHERE slug IS NULL ORDER BY id").fetchall()
+            c.execute("UPDATE streamers SET access_token=?, "
+                      "refresh_token=COALESCE(?, refresh_token) WHERE id=?",
+                      (access_token, refresh_token, streamer_id))
 
-    def assign_account(self, account_id: int, slug: str) -> None:
+    def update_streamer(self, streamer_id, *, keywords: list[str], main: bool,
+                        enabled: bool) -> None:
         with self._conn() as c:
-            c.execute("UPDATE accounts SET slug=NULL WHERE slug=?", (slug,))
-            c.execute("UPDATE accounts SET slug=? WHERE id=?", (slug, account_id))
+            c.execute("UPDATE streamers SET keywords=?, is_main=?, enabled=? WHERE id=?",
+                      (json.dumps(keywords), int(main), int(enabled), streamer_id))
 
-    def update_tokens(self, slug: str, access_token: str, refresh_token: str | None) -> None:
+    def delete_streamer(self, streamer_id) -> None:
         with self._conn() as c:
-            c.execute("UPDATE accounts SET access_token=?, "
-                      "refresh_token=COALESCE(?, refresh_token) WHERE slug=?",
-                      (access_token, refresh_token, slug))
+            c.execute("DELETE FROM streamers WHERE id=?", (streamer_id,))
 
-    def delete_account(self, account_id: int) -> None:
-        with self._conn() as c:
-            c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
-
-    def save_token(self, slug, access_token, refresh_token=None, streamlabs_name=None) -> int:
-        """Shortcut (tests/admin): link an account straight to a streamer."""
-        return self.save_account(f"manual:{slug}", streamlabs_name, access_token,
-                                 refresh_token, slug=slug)
+    def add_test_streamer(self, name: str, keywords=(), main=False, token=None) -> Streamer:
+        """Helper for tests and manual setup."""
+        sid, _ = self.upsert_streamer(f"manual:{name}", name, list(keywords),
+                                      token or f"tok-{name}", None, main=main)
+        return self.get_streamer(sid)
 
     # --- donations -------------------------------------------------------
     def donation_exists(self, message_id: str) -> bool:
@@ -174,18 +194,18 @@ class Database:
                              (limit,)).fetchall()
 
     # --- deliveries ------------------------------------------------------
-    def add_delivery(self, donation_id, slug, status, detail=None) -> None:
+    def add_delivery(self, donation_id, streamer_id, status, detail=None) -> None:
         with self._conn() as c:
-            c.execute("INSERT INTO deliveries(donation_id, slug, status, detail, sent_at) "
-                      "VALUES(?,?,?,?,?)", (donation_id, slug, status, detail, now()))
+            c.execute("INSERT INTO deliveries(donation_id, streamer_id, status, detail, sent_at) "
+                      "VALUES(?,?,?,?,?)", (donation_id, str(streamer_id), status, detail, now()))
 
     def deliveries_for(self, donation_id: int) -> list[sqlite3.Row]:
         with self._conn() as c:
             return c.execute("SELECT * FROM deliveries WHERE donation_id=? ORDER BY id",
                              (donation_id,)).fetchall()
 
-    def delivered_slugs(self, donation_id: int) -> set[str]:
+    def delivered_ids(self, donation_id: int) -> set[str]:
         with self._conn() as c:
-            rows = c.execute("SELECT slug FROM deliveries WHERE donation_id=? AND status='sent'",
-                             (donation_id,)).fetchall()
-        return {r["slug"] for r in rows}
+            rows = c.execute("SELECT streamer_id FROM deliveries "
+                             "WHERE donation_id=? AND status='sent'", (donation_id,)).fetchall()
+        return {r["streamer_id"] for r in rows}

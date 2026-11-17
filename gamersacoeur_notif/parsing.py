@@ -155,7 +155,7 @@ def find_streamer(hint: str | None, streamers: list[Streamer]) -> Streamer | Non
     text = _norm(hint)
     best: tuple[int, int, Streamer] | None = None
     for st in streamers:
-        for kw in st.keywords or [st.slug]:
+        for kw in st.keywords:
             kw_n = _norm(kw).strip()
             if not kw_n:
                 continue

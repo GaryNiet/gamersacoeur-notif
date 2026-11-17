@@ -11,72 +11,95 @@ from .conftest import make_email
 BODY = "Montant : CHF 20.00\nNom : Jean\nMessage : Courage !\nPour : Bob\n"
 
 
-def test_routed_donation_goes_to_streamer_and_main(cfg, db, notifier, api):
-    db.save_token("bob", "tok-bob")
-    db.save_token("gamersacoeur", "tok-main")
+def tokens(api):
+    return [c[1] for c in api.calls]
+
+
+def test_routed_donation_goes_to_streamer_and_main(cfg, db, notifier, api, people):
     did = process_message(cfg, db, notifier, make_email(BODY))
-    assert [(c[0], c[1]) for c in api.calls] == [("donation", "tok-bob"), ("donation", "tok-main")]
+    assert tokens(api) == ["tok-bob", "tok-main"]
     kw = api.calls[0][2]
     assert kw["amount"] == Decimal("20.00") and kw["currency"] == "CHF"
     assert kw["name"] == "Jean" and kw["message"] == "Courage !"
     row = db.get_donation(did)
-    assert row["status"] == "sent" and row["routed_to"] == "bob"
+    assert row["status"] == "sent" and row["routed_to"] == people["bob"].id
 
 
-def test_unmatched_goes_to_main_only(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "tok-main")
+def test_unmatched_goes_to_main_only(cfg, db, notifier, api, people):
     process_message(cfg, db, notifier, make_email("Montant : CHF 5\nPour : personne"))
-    assert [c[1] for c in api.calls] == ["tok-main"]
+    assert tokens(api) == ["tok-main"]
 
 
-def test_duplicate_email_ignored(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "tok-main")
+def test_disabled_streamer_not_routed(cfg, db, notifier, api, people):
+    db.update_streamer(people["bob"].id, keywords=["bob"], main=False, enabled=False)
+    process_message(cfg, db, notifier, make_email(BODY))
+    assert tokens(api) == ["tok-main"]
+
+
+def test_edited_keywords_used(cfg, db, notifier, api, people):
+    db.update_streamer(people["alice"].id, keywords=["bob"], main=False, enabled=True)
+    db.update_streamer(people["bob"].id, keywords=["robert"], main=False, enabled=True)
+    process_message(cfg, db, notifier, make_email(BODY))
+    assert tokens(api) == ["tok-alice", "tok-main"]
+
+
+def test_several_main_accounts(cfg, db, notifier, api, people):
+    db.update_streamer(people["alice"].id, keywords=["alice"], main=True, enabled=True)
+    process_message(cfg, db, notifier, make_email(BODY))
+    assert tokens(api) == ["tok-bob", "tok-main", "tok-alice"]
+
+
+def test_duplicate_email_ignored(cfg, db, notifier, api, people):
     assert process_message(cfg, db, notifier, make_email(BODY)) is not None
     assert process_message(cfg, db, notifier, make_email(BODY)) is None
-    assert len([c for c in api.calls if c[1] == "tok-main"]) == 1
+    assert tokens(api).count("tok-main") == 1
 
 
-def test_filters(cfg, db, notifier, api):
+def test_filters(cfg, db, notifier, api, people):
     assert process_message(cfg, db, notifier, make_email(BODY, sender="spam@x.com")) is None
     assert process_message(cfg, db, notifier, make_email(BODY, subject="Newsletter")) is None
     assert api.calls == []
 
 
-def test_unparsed_amount_not_sent(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "tok-main")
+def test_unparsed_amount_not_sent(cfg, db, notifier, api, people):
     did = process_message(cfg, db, notifier, make_email("Pas de montant ici"))
     assert db.get_donation(did)["status"] == "unparsed"
     assert api.calls == []
 
 
-def test_not_connected_then_retry(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "tok-main")
+def test_error_then_retry_only_missing(cfg, db, notifier, api, people):
+    api.fail_tokens["tok-bob"] = StreamlabsError("boom", 500)
     did = process_message(cfg, db, notifier, make_email(BODY))
-    assert db.get_donation(did)["status"] == "partial"   # bob not connected yet
-    db.save_token("bob", "tok-bob")
-    assert notifier.retry(did) == {"bob": "sent"}           # main is not re-sent
+    assert db.get_donation(did)["status"] == "partial"
+    del api.fail_tokens["tok-bob"]
+    assert notifier.retry(did) == {"Bob": "sent"}            # main is not re-sent
     assert db.get_donation(did)["status"] == "sent"
-    assert [c[1] for c in api.calls] == ["tok-main", "tok-bob"]
+    assert tokens(api) == ["tok-main", "tok-bob"]
+
+
+def test_deleted_streamer(cfg, db, notifier, api, people):
+    db.delete_streamer(people["main"].id)
+    process_message(cfg, db, notifier, make_email(BODY))
+    assert tokens(api) == ["tok-bob"]
 
 
 def test_token_refresh_on_401(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "old", refresh_token="r1")
+    main = db.add_test_streamer("Main", main=True, token="old")
+    db.update_tokens(main.id, "old", "r1")
     api.fail_tokens["old"] = StreamlabsError("unauthorized", 401)
     process_message(cfg, db, notifier, make_email("Montant: 3"))
-    assert api.calls[0][1] == "new-r1"
-    assert db.get_token("gamersacoeur")["access_token"] == "new-r1"
+    assert tokens(api) == ["new-r1"]
+    assert db.get_token(main.id)["access_token"] == "new-r1"
 
 
-def test_error_marks_failed(cfg, db, notifier, api):
-    db.save_token("gamersacoeur", "bad")
-    api.fail_tokens["bad"] = StreamlabsError("boom", 500)
+def test_error_marks_failed(cfg, db, notifier, api, people):
+    api.fail_tokens["tok-main"] = StreamlabsError("boom", 500)
     did = process_message(cfg, db, notifier, make_email("Montant: 3"))
     assert db.get_donation(did)["status"] == "failed"
 
 
-def test_alert_mode(cfg, db, notifier, api):
+def test_alert_mode(cfg, db, notifier, api, people):
     cfg.streamlabs.mode = "alert"
-    db.save_token("gamersacoeur", "tok-main")
     process_message(cfg, db, notifier, make_email(BODY))
     kind, _, kw = api.calls[0]
     assert kind == "alert"
@@ -84,7 +107,7 @@ def test_alert_mode(cfg, db, notifier, api):
     assert kw["user_message"] == "Courage !"
 
 
-def test_dry_run(cfg, db, notifier, api):
+def test_dry_run(cfg, db, notifier, api, people):
     cfg.streamlabs.dry_run = True
     did = process_message(cfg, db, notifier, make_email(BODY))
     assert api.calls == []
@@ -92,19 +115,16 @@ def test_dry_run(cfg, db, notifier, api):
     assert db.get_donation(did)["status"] == "sent"
 
 
-def test_main_streamer_routed_not_duplicated(cfg, notifier):
-    main = cfg.streamer("gamersacoeur")
-    assert notifier.targets(main) == [main]
+def test_main_streamer_routed_not_duplicated(notifier, people):
+    assert notifier.targets(people["main"]) == [people["main"]]
 
 
-def test_config_requires_main(raw_cfg):
-    for s in raw_cfg["streamers"]:
-        s["main"] = False
+def test_config_rejects_old_streamers_list(raw_cfg):
+    raw_cfg["streamers"] = [{"slug": "a", "name": "A"}]
     with pytest.raises(ConfigError):
         config_from_dict(raw_cfg)
 
 
-def test_config_bad_slug(raw_cfg):
-    raw_cfg["streamers"][1]["slug"] = "Alice B"
-    with pytest.raises(ConfigError):
-        config_from_dict(raw_cfg)
+def test_config_main_accounts(cfg):
+    assert cfg.is_main_account(["foo", "gamersacoeur"])
+    assert not cfg.is_main_account(["foo"])

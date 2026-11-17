@@ -58,27 +58,19 @@ streamlabs:
   # true = log only, send nothing (good for testing the email parsing)
   dry_run: false
 
-# Every streamer gets the same link (the app's home page, see
-# "python -m gamersacoeur_notif link"). After they log in with Streamlabs,
-# their account is linked to the streamer below whose streamlabs_name matches
-# their Streamlabs (or connected Twitch/YouTube) display name, case-insensitive.
-# Accounts that match no one show up on /admin to be assigned by hand.
+# --- Streamers -----------------------------------------------------------
+# There is no list of streamers: anyone who opens the app's home page (see
+# "python -m gamersacoeur_notif link") and logs in with Streamlabs becomes a
+# streamer. Their Streamlabs / Twitch / YouTube names become their routing
+# keywords. A donation is routed to the streamer whose keyword appears (whole
+# word, case and accents ignored) in the "streamer" text above. Keywords can
+# be edited, and streamers disabled or deleted, on /admin.
 #
-# Every donation goes to the matched streamer AND to every "main: true" account.
-# A streamer is matched when one of its keywords appears (whole word, case and
-# accents ignored) in the "streamer" text above. If no one matches, the
-# donation goes to the main account only.
-streamers:
-  - slug: gamersacoeur
-    name: Gamers à Coeur
-    main: true
-    streamlabs_name: GamersACoeur
-    keywords: []          # empty = matches its slug only; it receives everything anyway
-  - slug: alice
-    name: Alice
-    streamlabs_name: Alice_TV
-    keywords: [alice, alice_tv]
-  - slug: bob
-    name: Bob
-    streamlabs_name: BobStream
-    keywords: [bob, bobstream]
+# Every donation ALSO goes to the main account(s). List the main account's
+# Streamlabs/Twitch name here so it becomes main when it connects (or tick
+# "principal" on /admin afterwards).
+main_accounts: [GamersACoeur]
+
+# true  = streamers receive alerts as soon as they connect
+# false = new streamers wait until you tick "actif" on /admin
+new_streamers_enabled: true

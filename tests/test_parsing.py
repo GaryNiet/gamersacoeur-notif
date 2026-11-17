@@ -36,38 +36,38 @@ Merci !
 """
 
 
-def test_parse_donation(cfg):
+def test_parse_donation(cfg, people):
     d = parse_donation("Nouveau don", BODY, cfg.parsing)
     assert d.amount == Decimal("1250.00")
     assert d.currency == "CHF"
     assert d.donor == "Zoé Müller"
     assert d.message == "Allez Alice, on y croit ! Bisous à Bob"
     assert d.streamer_hint == "Alice_TV"
-    assert find_streamer(d.streamer_hint, cfg.streamers).slug == "alice"
+    assert find_streamer(d.streamer_hint, list(people.values())) == people["alice"]
 
 
-def test_parse_donation_defaults(cfg):
+def test_parse_donation_defaults(cfg, people):
     d = parse_donation("Don", "Montant: 5 CHF", cfg.parsing)
     assert d.amount == Decimal("5.00")
     assert d.donor == "Anonyme"
     assert d.message == ""
     assert d.streamer_hint is None
-    assert find_streamer(d.streamer_hint, cfg.streamers) is None
+    assert find_streamer(d.streamer_hint, list(people.values())) is None
 
 
-def test_find_streamer_rules(cfg):
-    s = cfg.streamers
-    assert find_streamer("pour BOB svp", s).slug == "bob"
-    assert find_streamer("bobby", s) is None               # whole words only
-    assert find_streamer("ÀLICE", s).slug == "alice"       # accents/case ignored
-    assert find_streamer("Bob puis Alice", s).slug == "bob"  # earliest mention wins
-    assert find_streamer("gamersacoeur", s).slug == "gamersacoeur"  # slug fallback
+def test_find_streamer_rules(people):
+    s = list(people.values())
+    assert find_streamer("pour BOB svp", s) == people["bob"]
+    assert find_streamer("bobby", s) is None                 # whole words only
+    assert find_streamer("ÀLICE", s) == people["alice"]      # accents/case ignored
+    assert find_streamer("Bob puis Alice", s) == people["bob"]  # earliest mention wins
+    assert find_streamer("gamersacoeur", s) == people["main"]
 
 
-def test_find_streamer_whole_email_when_no_rule(cfg):
+def test_find_streamer_whole_email_when_no_rule(cfg, people):
     cfg.parsing.streamer = None
     d = parse_donation("Don pour bobstream", "Montant: 5", cfg.parsing)
-    assert find_streamer(d.streamer_hint, cfg.streamers).slug == "bob"
+    assert find_streamer(d.streamer_hint, list(people.values())) == people["bob"]
 
 
 def test_named_group(cfg):

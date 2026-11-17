@@ -21,7 +21,7 @@ class Notifier:
     def targets(self, routed: Streamer | None) -> list[Streamer]:
         """Routed streamer first, then the main account(s), without duplicates."""
         out: list[Streamer] = []
-        for st in ([routed] if routed else []) + self.cfg.main_streamers:
+        for st in ([routed] if routed else []) + self.db.main_streamers():
             if st not in out:
                 out.append(st)
         return out
@@ -38,12 +38,12 @@ class Notifier:
         return self.api.create_alert(token, message=sl.alert_message.format(**fmt),
                                      user_message=sl.alert_user_message.format(**fmt))
 
-    def send_to(self, slug: str, donor: str, amount: Decimal, currency: str,
+    def send_to(self, streamer_id: str, donor: str, amount: Decimal, currency: str,
                 message: str) -> tuple[str, str]:
         """Return (status, detail); status is 'sent', 'dry_run', 'not_connected' or 'error'."""
         if self.cfg.streamlabs.dry_run:
             return "dry_run", f"{donor} {amount} {currency}"
-        tok = self.db.get_token(slug)
+        tok = self.db.get_token(streamer_id)
         if tok is None:
             return "not_connected", "streamer has not connected Streamlabs"
         try:
@@ -55,7 +55,7 @@ class Notifier:
                     sl = self.cfg.streamlabs
                     new = self.api.refresh_token(sl.client_id, sl.client_secret,
                                                  sl.redirect_uri, tok["refresh_token"])
-                    self.db.update_tokens(slug, new["access_token"], new.get("refresh_token"))
+                    self.db.update_tokens(streamer_id, new["access_token"], new.get("refresh_token"))
                     self._call(new["access_token"], donor, amount, currency, message)
                     return "sent", "after token refresh"
                 except streamlabs.StreamlabsError as exc2:
@@ -67,12 +67,12 @@ class Notifier:
                 skip: set[str] = frozenset()) -> dict[str, str]:
         results = {}
         for st in targets:
-            if st.slug in skip:
+            if st.id in skip:
                 continue
-            status, detail = self.send_to(st.slug, donor, amount, currency, message)
-            log.info("donation %s -> %s: %s %s", donation_id, st.slug, status, detail)
-            self.db.add_delivery(donation_id, st.slug, status, detail)
-            results[st.slug] = status
+            status, detail = self.send_to(st.id, donor, amount, currency, message)
+            log.info("donation %s -> %s (#%s): %s %s", donation_id, st.name, st.id, status, detail)
+            self.db.add_delivery(donation_id, st.id, status, detail)
+            results[st.name] = status
         return results
 
     def retry(self, donation_id: int) -> dict[str, str]:
@@ -80,23 +80,23 @@ class Notifier:
         row = self.db.get_donation(donation_id)
         if row is None or not row["amount"]:
             return {}
-        routed = self.cfg.streamer(row["routed_to"].split(",")[0]) if row["routed_to"] else None
+        routed = self.db.get_streamer(row["routed_to"].split(",")[0]) if row["routed_to"] else None
         results = self.deliver(donation_id, self.targets(routed), row["donor"],
                                Decimal(row["amount"]), row["currency"], row["message"] or "",
-                               skip=self.db.delivered_slugs(donation_id))
+                               skip=self.db.delivered_ids(donation_id))
         self.db.set_donation_status(donation_id, overall_status(self.db, donation_id))
         return results
 
-    def send_test(self, slug: str) -> tuple[str, str]:
-        return self.send_to(slug, "Test TWINT", Decimal("1.00"), self.cfg.parsing.currency,
+    def send_test(self, streamer_id: str) -> tuple[str, str]:
+        return self.send_to(streamer_id, "Test TWINT", Decimal("1.00"), self.cfg.parsing.currency,
                             "Ceci est un test de Gamers à Coeur notif")
 
 
 def overall_status(db: Database, donation_id: int) -> str:
     statuses = {}
     for d in db.deliveries_for(donation_id):
-        if statuses.get(d["slug"]) != "sent":
-            statuses[d["slug"]] = d["status"]
+        if statuses.get(d["streamer_id"]) != "sent":
+            statuses[d["streamer_id"]] = d["status"]
     vals = set(statuses.values())
     if vals <= {"sent", "dry_run"}:
         return "sent"

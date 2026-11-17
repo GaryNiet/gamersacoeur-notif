@@ -36,16 +36,13 @@ class ConfigError(Exception):
     pass
 
 
-@dataclass
+@dataclass(frozen=True)
 class Streamer:
-    slug: str
+    """A streamer who connected their Streamlabs account (stored in the database)."""
+    id: str
     name: str
-    keywords: list[str] = field(default_factory=list)
+    keywords: tuple[str, ...] = ()
     main: bool = False
-    # Streamlabs (or linked Twitch/YouTube) display name of this streamer's
-    # account. When someone logs in with the shared link, their account is
-    # linked to the streamer whose streamlabs_name matches (case-insensitive).
-    streamlabs_name: str | None = None
 
 
 @dataclass
@@ -98,25 +95,22 @@ class Config:
     mail: MailConfig
     parsing: ParsingConfig
     streamlabs: StreamlabsConfig
-    streamers: list[Streamer]
     secret_key: str
     admin_password: str
+    # Streamlabs/Twitch/YouTube names of the account(s) that receive EVERY
+    # donation. They become "main" automatically when they connect (can also
+    # be toggled on /admin).
+    main_accounts: list[str] = field(default_factory=list)
+    # true  = anyone who connects starts receiving alerts right away
+    # false = new streamers wait until an admin enables them on /admin
+    new_streamers_enabled: bool = True
     database: str = "gamersacoeur.sqlite3"
     host: str = "127.0.0.1"
     port: int = 8000
 
-    def streamer(self, slug: str) -> Streamer | None:
-        return next((s for s in self.streamers if s.slug == slug), None)
-
-    def streamer_for_account(self, names: list[str]) -> Streamer | None:
-        """Streamer whose ``streamlabs_name`` is one of the account's names."""
-        wanted = {n.strip().casefold() for n in names if n}
-        return next((s for s in self.streamers
-                     if s.streamlabs_name and s.streamlabs_name.strip().casefold() in wanted), None)
-
-    @property
-    def main_streamers(self) -> list[Streamer]:
-        return [s for s in self.streamers if s.main]
+    def is_main_account(self, names: list[str]) -> bool:
+        wanted = {n.strip().casefold() for n in self.main_accounts}
+        return any(n.strip().casefold() in wanted for n in names if n)
 
 
 def _build(cls, data: dict, section: str):
@@ -136,33 +130,27 @@ def load_config(path: str | os.PathLike) -> Config:
 
 
 def config_from_dict(raw: dict) -> Config:
-    for key in ("mail", "streamlabs", "streamers", "secret_key", "admin_password"):
+    for key in ("mail", "streamlabs", "secret_key", "admin_password"):
         if key not in raw:
             raise ConfigError(f"Missing '{key}' in config")
-
-    streamers = []
-    seen = set()
-    for i, s in enumerate(raw["streamers"]):
-        st = _build(Streamer, s, f"streamers[{i}]")
-        if not re.fullmatch(r"[a-z0-9_-]+", st.slug):
-            raise ConfigError(f"Streamer slug '{st.slug}' must be lowercase letters/digits/-/_")
-        if st.slug in seen:
-            raise ConfigError(f"Duplicate streamer slug '{st.slug}'")
-        seen.add(st.slug)
-        streamers.append(st)
-    if not any(s.main for s in streamers):
-        raise ConfigError("At least one streamer must have 'main: true'")
+    if "streamers" in raw:
+        raise ConfigError("'streamers' is no longer used: streamers sign up themselves with "
+                          "the link. Use 'main_accounts' for the main account.")
 
     sl = _build(StreamlabsConfig, raw["streamlabs"], "streamlabs")
     if sl.mode not in ("donation", "alert"):
         raise ConfigError("streamlabs.mode must be 'donation' or 'alert'")
+    main = raw.get("main_accounts") or []
+    if isinstance(main, str):
+        main = [main]
 
     top = {k: v for k, v in raw.items()
-           if k in ("database", "host", "port", "secret_key", "admin_password")}
+           if k in ("database", "host", "port", "secret_key", "admin_password",
+                    "new_streamers_enabled")}
     return Config(
         mail=_build(MailConfig, raw["mail"], "mail"),
         parsing=_build(ParsingConfig, raw.get("parsing") or {}, "parsing"),
         streamlabs=sl,
-        streamers=streamers,
+        main_accounts=[str(m) for m in main],
         **top,
     )

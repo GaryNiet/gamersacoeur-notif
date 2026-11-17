@@ -17,8 +17,8 @@ def client(cfg, db, notifier):
     return app.test_client()
 
 
-def login(client, monkeypatch, user=("42", ["alice_tv"]), token="AT"):
-    """Go through the shared link + Streamlabs login; returns the final page text."""
+def login(client, monkeypatch, user=("42", ["Alice_TV", "alice"]), token="AT"):
+    """Open the shared link and log in with Streamlabs; returns the final page text."""
     page = client.get("/").get_data(as_text=True)
     url = re.search(r'href="([^"]+)"', page).group(1).replace("&amp;", "&")
     q = parse_qs(urlsplit(url).query)
@@ -40,62 +40,71 @@ def test_single_link(cfg):
     assert connect_link(cfg) == "https://notif.example.ch/"
 
 
-def test_login_matched_by_streamlabs_name(client, db, monkeypatch):
-    text = login(client, monkeypatch, user=("42", ["Some Twitch Name", "ALICE_TV"]))
-    assert "Merci Alice" in text
-    acc = db.get_token("alice")
-    assert acc["access_token"] == "AT" and acc["streamlabs_id"] == "42"
-    assert db.unassigned_accounts() == []
+def test_anyone_can_sign_up(client, db, monkeypatch):
+    text = login(client, monkeypatch)
+    assert "Alice_TV" in text and "tout bon" in text
+    [st] = db.streamers()
+    assert st.name == "Alice_TV" and st.keywords == ("Alice_TV", "alice") and not st.main
+    assert db.get_token(st.id)["access_token"] == "AT"
 
 
-def test_relogin_updates_token_and_keeps_link(client, db, monkeypatch):
-    login(client, monkeypatch, user=("7", ["Nobody"]))
-    acc = db.unassigned_accounts()[0]
-    db.assign_account(acc["id"], "bob")
-    text = login(client, monkeypatch, user=("7", ["Nobody"]), token="AT2")
-    assert "Merci Bob" in text                         # assignment kept on reconnect
-    assert db.get_token("bob")["access_token"] == "AT2"
+def test_main_account_from_config(client, db, monkeypatch):
+    login(client, monkeypatch, user=("1", ["GamersACoeur"]))
+    assert [s.name for s in db.main_streamers()] == ["GamersACoeur"]
 
 
-def test_unknown_account_waits_for_admin(client, db, monkeypatch, api):
-    text = login(client, monkeypatch, user=("99", ["RandomViewer"]))
-    assert "organisation" in text
-    assert db.all_tokens() == {}
-    [acc] = db.unassigned_accounts()
-    assert acc["streamlabs_name"] == "RandomViewer"
+def test_relogin_keeps_admin_changes(client, db, monkeypatch):
+    login(client, monkeypatch, user=("7", ["Bob"]))
+    [st] = db.streamers()
+    db.update_streamer(st.id, keywords=["bobby"], main=True, enabled=True)
+    text = login(client, monkeypatch, user=("7", ["Bob"]), token="AT2")
+    assert "bobby" in text
+    [st2] = db.streamers()
+    assert st2.id == st.id and st2.keywords == ("bobby",) and st2.main
+    assert db.get_token(st.id)["access_token"] == "AT2"
 
-    page = client.get("/admin", headers=AUTH).get_data(as_text=True)
-    assert "Comptes à attribuer" in page and "RandomViewer" in page
-    r = client.post(f"/admin/assign/{acc['id']}", headers=AUTH,
-                    data={"csrf": csrf_of(client), "slug": "bob"})
+
+def test_approval_mode(client, cfg, db, monkeypatch):
+    cfg.new_streamers_enabled = False
+    assert "activer" in login(client, monkeypatch)
+    assert db.streamers() == []                       # not routed until enabled
+    assert len(db.streamer_rows()) == 1
+
+
+def test_user_lookup_failure(client, db, monkeypatch):
+    text = login(client, monkeypatch, user=(None, []))
+    assert "préviens l'organisation" in text
+    [row] = db.streamer_rows()
+    assert row["streamlabs_id"].startswith("token:") and row["name"] == "(nom inconnu)"
+
+
+def test_admin_edit_streamer(client, db, monkeypatch):
+    login(client, monkeypatch)
+    [st] = db.streamers()
+    r = client.post(f"/admin/streamer/{st.id}", headers=AUTH,
+                    data={"csrf": csrf_of(client), "keywords": " alice , alicia,, ", "main": "on",
+                          "enabled": "on"})
     assert r.status_code == 302
-    assert db.get_token("bob")["streamlabs_name"] == "RandomViewer"
+    [st] = db.streamers()
+    assert st.keywords == ("alice", "alicia") and st.main
+    client.post(f"/admin/streamer/{st.id}", headers=AUTH,
+                data={"csrf": csrf_of(client), "keywords": "alice"})   # boxes unticked
+    assert db.streamers() == [] and db.main_streamers() == []
 
 
-def test_user_lookup_failure_still_stores_account(client, db, monkeypatch):
-    login(client, monkeypatch, user=(None, []))
-    [acc] = db.unassigned_accounts()
-    assert acc["streamlabs_id"].startswith("token:") and acc["streamlabs_name"] is None
+def test_admin_delete_streamer(client, db, monkeypatch):
+    login(client, monkeypatch)
+    [st] = db.streamers()
+    client.post(f"/admin/streamer/{st.id}/delete", headers=AUTH, data={"csrf": csrf_of(client)})
+    assert db.streamer_rows() == []
 
 
-def test_assign_replaces_previous_account(client, db, monkeypatch):
-    login(client, monkeypatch, user=("1", ["alice_tv"]), token="OLD")
-    login(client, monkeypatch, user=("2", ["other"]), token="NEW")
-    new = db.unassigned_accounts()[0]
-    client.post(f"/admin/assign/{new['id']}", headers=AUTH,
-                data={"csrf": csrf_of(client), "slug": "alice"})
-    assert db.get_token("alice")["access_token"] == "NEW"
-    assert [a["access_token"] for a in db.unassigned_accounts()] == ["OLD"]
-
-
-def test_forget_and_disconnect(client, db, monkeypatch):
-    login(client, monkeypatch, user=("5", ["x"]))
-    acc = db.unassigned_accounts()[0]
-    client.post(f"/admin/forget/{acc['id']}", headers=AUTH, data={"csrf": csrf_of(client)})
-    assert db.unassigned_accounts() == []
-    login(client, monkeypatch, user=("6", ["BobStream"]))
-    client.post("/admin/disconnect/bob", headers=AUTH, data={"csrf": csrf_of(client)})
-    assert db.get_token("bob") is None
+def test_admin_page_escapes_names(client, db, monkeypatch):
+    evil = "x');alert(1);('\"<b>"
+    login(client, monkeypatch, user=("666", [evil]))
+    page = client.get("/admin", headers=AUTH).get_data(as_text=True)
+    assert "<b>" not in page and "');alert(1)" not in page
+    assert "Aucun compte principal" in page
 
 
 def test_callback_rejects_bad_state(client):
@@ -112,11 +121,11 @@ def test_admin_requires_password(client):
     assert r.status_code == 200 and "https://notif.example.ch/" in r.get_data(as_text=True)
 
 
-def test_admin_test_button_and_csrf(client, db, api):
-    db.save_token("bob", "tok-bob")
-    csrf = csrf_of(client)
-    assert client.post("/admin/test/bob", headers=AUTH, data={"csrf": "bad"}).status_code == 400
-    assert client.post("/admin/test/bob", headers=AUTH, data={"csrf": csrf}).status_code == 302
+def test_admin_test_button_and_csrf(client, db, api, people):
+    bob = people["bob"].id
+    assert client.post(f"/admin/test/{bob}", headers=AUTH, data={"csrf": "bad"}).status_code == 400
+    assert client.post(f"/admin/test/{bob}", headers=AUTH,
+                       data={"csrf": csrf_of(client)}).status_code == 302
     assert api.calls[0][1] == "tok-bob"
 
 

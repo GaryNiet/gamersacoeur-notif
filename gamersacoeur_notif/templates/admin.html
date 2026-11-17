@@ -14,47 +14,33 @@
   <strong>Lien à envoyer à tous les streamers :</strong> <span class="link">{{ link }}</span>
 </div>
 
-{% if unassigned %}
-<div class="card">
-  <h2 class="err">Comptes à attribuer</h2>
-  <p class="muted">Ces comptes Streamlabs se sont connectés mais leur nom ne correspond à aucun <code>streamlabs_name</code> de la config. Ils ne reçoivent rien tant qu'ils ne sont pas attribués.</p>
-  <table>
-    <tr><th>Compte Streamlabs</th><th>Connecté (UTC)</th><th></th></tr>
-    {% for a in unassigned %}
-    <tr>
-      <td><strong>{{ a.streamlabs_name or '(nom inconnu)' }}</strong> <span class="muted">{{ a.streamlabs_id }}</span></td>
-      <td>{{ a.connected_at }}</td>
-      <td>
-        <form class="inline" method="post" action="{{ url_for('admin_assign', account_id=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <select name="slug">{% for s in streamers %}<option value="{{ s.cfg.slug }}">{{ s.cfg.name }}{% if s.token %} (remplace le compte actuel){% endif %}</option>{% endfor %}</select>
-          <button class="btn">Attribuer</button></form>
-        <form class="inline" method="post" action="{{ url_for('admin_forget', account_id=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost">Supprimer</button></form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
+{% if not has_main %}
+<div class="card err">
+  <strong>Aucun compte principal actif.</strong> Coche « principal » pour le compte qui doit recevoir tous les dons
+  (ou ajoute son nom dans <code>main_accounts</code> de la config avant qu'il se connecte).
 </div>
 {% endif %}
 
 <div class="card">
-  <h2>Streamers</h2>
+  <h2>Streamers ({{ streamers | length }})</h2>
+  {% if not streamers %}<p class="muted">Personne ne s'est encore connecté. Envoie le lien ci-dessus.</p>{% else %}
+  <p class="muted">Mots-clés : un don est attribué au streamer dont un mot-clé apparaît dans l'email (mot entier, sans tenir compte des majuscules ni des accents). Séparés par des virgules.</p>
   <table>
-    <tr><th>Streamer</th><th>Mots-clés</th><th>Nom Streamlabs attendu</th><th>Compte connecté</th><th></th></tr>
+    <tr><th>Streamer</th><th>Mots-clés</th><th>Principal</th><th>Actif</th><th></th></tr>
     {% for s in streamers %}
     <tr>
-      <td><strong>{{ s.cfg.name }}</strong> <span class="muted">({{ s.cfg.slug }})</span>
-          {% if s.cfg.main %}<br><span class="ok">compte principal – reçoit tout</span>{% endif %}</td>
-      <td>{{ (s.cfg.keywords or [s.cfg.slug]) | join(', ') }}</td>
-      <td>{{ s.cfg.streamlabs_name or '—' }}</td>
-      <td>{% if s.token %}<span class="ok">connecté</span>{% if s.token.streamlabs_name %} ({{ s.token.streamlabs_name }}){% endif %}<br><span class="muted">{{ s.token.connected_at }}</span>
-          {% else %}<span class="err">non connecté</span>{% endif %}</td>
-      <td>
-        <form class="inline" method="post" action="{{ url_for('admin_test', slug=s.cfg.slug) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Test</button></form>
-        {% if s.token %}<form class="inline" method="post" action="{{ url_for('admin_disconnect', slug=s.cfg.slug) }}" onsubmit="return confirm('Déconnecter {{ s.cfg.name }} ?')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost">Déconnecter</button></form>{% endif %}
+      <td><strong>{{ s.name }}</strong> <span class="muted">#{{ s.id }}</span><br>
+          <span class="muted">connecté {{ s.connected_at }}</span></td>
+      <td><input name="keywords" form="f{{ s.id }}" value="{{ keywords(s) }}" style="width:100%;min-width:180px"></td>
+      <td><input type="checkbox" name="main" form="f{{ s.id }}" {{ 'checked' if s.is_main }}></td>
+      <td><input type="checkbox" name="enabled" form="f{{ s.id }}" {{ 'checked' if s.enabled }}></td>
+      <td><form class="inline" id="f{{ s.id }}" method="post" action="{{ url_for('admin_update', streamer_id=s.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost">Enregistrer</button></form>
+        <form class="inline" method="post" action="{{ url_for('admin_test', streamer_id=s.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Test</button></form>
+        <form class="inline" method="post" action="{{ url_for('admin_delete', streamer_id=s.id) }}" onsubmit='return confirm({{ ("Supprimer " ~ s.name ~ " ? Il/elle devra se reconnecter.") | tojson }})'><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn ghost">Supprimer</button></form>
       </td>
     </tr>
     {% endfor %}
-  </table>
+  </table>{% endif %}
 </div>
 
 <div class="card">
@@ -69,10 +55,10 @@
       <td>{{ r.donor }}</td>
       <td>{{ r.amount or '?' }} {{ r.currency }}</td>
       <td>{{ r.message }}<br><span class="muted">{{ r.subject }}</span></td>
-      <td>{{ r.routed_to or '—' }}</td>
+      <td>{{ names.get(r.routed_to, '#' ~ r.routed_to) if r.routed_to else '—' }}</td>
       <td>
         <span class="{{ 'ok' if r.status == 'sent' else 'err' }}">{{ r.status }}</span>{% if r.detail %} <span class="muted">{{ r.detail }}</span>{% endif %}
-        {% for dl in d.deliveries %}<br>{{ dl.slug }}: <span class="{{ 'ok' if dl.status in ('sent', 'dry_run') else 'err' }}">{{ dl.status }}</span>{% if dl.detail %} <span class="muted">{{ dl.detail[:120] }}</span>{% endif %}{% endfor %}
+        {% for dl in d.deliveries %}<br>{{ names.get(dl.streamer_id, '#' ~ dl.streamer_id) }}: <span class="{{ 'ok' if dl.status in ('sent', 'dry_run') else 'err' }}">{{ dl.status }}</span>{% if dl.detail %} <span class="muted">{{ dl.detail[:120] }}</span>{% endif %}{% endfor %}
       </td>
       <td>{% if r.amount and r.status != 'sent' %}<form class="inline" method="post" action="{{ url_for('admin_retry', donation_id=r.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Renvoyer</button></form>{% endif %}</td>
     </tr>

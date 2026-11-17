@@ -47,13 +47,14 @@ def main(argv=None) -> int:
         return 2
 
     if args.cmd == "parse":
+        streamers = Database(cfg.database).streamers()
         for path in args.eml:
             with open(path, "rb") as fh:
                 msg = email.message_from_binary_file(fh, policy=policy.default)
             subject = str(msg.get("Subject", ""))
             text = email_text(msg)
             d = parse_donation(subject, text, cfg.parsing)
-            st = find_streamer(d.streamer_hint, cfg.streamers)
+            st = find_streamer(d.streamer_hint, streamers)
             print(f"=== {path}")
             print(f"From     : {msg.get('From')}")
             print(f"Subject  : {subject}")
@@ -61,18 +62,14 @@ def main(argv=None) -> int:
             print(f"Amount   : {d.amount} {d.currency}" if d.amount else "Amount   : NOT FOUND")
             print(f"Donor    : {d.donor}")
             print(f"Message  : {d.message}")
-            print(f"Streamer : {st.slug if st else 'no match -> main account only'}")
-            print(f"Main     : {', '.join(s.slug for s in cfg.main_streamers)}")
+            print(f"Streamer : {st.name if st else 'no match -> main account only'}")
+            print(f"Main     : {', '.join(s.name for s in streamers if s.main) or '(none yet)'}")
             print("--- body text used for parsing ---")
             print(text)
         return 0
 
     if args.cmd == "link":
         print(connect_link(cfg))
-        missing = [s.name for s in cfg.streamers if not s.streamlabs_name]
-        if missing:
-            print(f"Note: no streamlabs_name for {', '.join(missing)} - their accounts will "
-                  "need to be assigned by hand on /admin.", file=sys.stderr)
         return 0
 
     db = Database(cfg.database)
