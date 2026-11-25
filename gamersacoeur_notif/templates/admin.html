@@ -60,7 +60,7 @@
 </div>
 
 <div class="card">
-  <h2>Dons reçus</h2>
+  <h2>Dons reçus {% if donations %}<a class="btn ghost" style="float:right;font-size:14px" href="{{ url_for('admin_donations_csv') }}">Exporter en CSV</a>{% endif %}</h2>
   {% if not donations %}<p class="muted">Aucun don pour l'instant.</p>{% else %}
   <table>
     <tr><th>#</th><th>Reçu (UTC)</th><th>Donateur</th><th>Montant</th><th>Message</th><th>Pour</th><th>Envois</th><th></th></tr>
@@ -70,7 +70,14 @@
       <td>{{ r.received_at }}</td>
       <td>{{ r.donor }}</td>
       <td>{{ r.amount or '?' }} {{ r.currency }}</td>
-      <td>{{ r.message }}<br><span class="muted">{{ r.subject }}</span></td>
+      <td>{{ r.message }}<br><span class="muted">{{ r.subject }}</span>
+        {% if d.fields or r.email_text %}
+        <details class="email"><summary>Détails de l'email</summary>
+          {% if d.fields %}<dl>{% for k, v in d.fields.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>{% endif %}
+          {% if r.email_text %}<details><summary>Texte complet</summary><pre>{{ r.email_text }}</pre></details>{% endif %}
+        </details>
+        {% endif %}
+      </td>
       <td>{{ names.get(r.routed_to, '#' ~ r.routed_to) if r.routed_to else '—' }}</td>
       <td>
         <span class="{{ 'ok' if r.status == 'sent' else ('muted' if r.status == 'queued' else 'err') }}">{{ 'en file' if r.status == 'queued' else r.status }}</span>{% if r.detail %} <span class="muted">{{ r.detail }}</span>{% endif %}

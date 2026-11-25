@@ -9,14 +9,17 @@ Routes
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 import json
 import secrets
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import (Flask, Response, abort, flash, redirect, render_template, request, session,
+                   url_for)
 
 from . import streamlabs
 from .config import Config
@@ -29,6 +32,20 @@ def public_base_url(cfg: Config) -> str:
     parts = urlsplit(cfg.streamlabs.redirect_uri)
     prefix = parts.path.rsplit("/callback", 1)[0] if parts.path.endswith("/callback") else ""
     return f"{parts.scheme}://{parts.netloc}{prefix}"
+
+
+def csv_cell(value) -> str:
+    """Text for a CSV cell; donor-supplied text can't run as a spreadsheet formula."""
+    s = "" if value is None else str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+def donation_fields(row) -> dict[str, str]:
+    """The "Key: value" fields stored with a donation (empty for old donations)."""
+    try:
+        return json.loads(row["fields"] or "{}")
+    except (IndexError, KeyError, ValueError):
+        return {}
 
 
 def connect_link(cfg: Config) -> str:
@@ -118,7 +135,8 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None,
     def admin():
         rows = db.streamer_rows()
         names = {str(r["id"]): r["name"] for r in rows}
-        donations = [{"row": d, "deliveries": db.deliveries_for(d["id"])}
+        donations = [{"row": d, "deliveries": db.deliveries_for(d["id"]),
+                      "fields": donation_fields(d)}
                      for d in db.recent_donations(100)]
         return render_template(
             "admin.html", cfg=cfg, streamers=rows, names=names, donations=donations,
@@ -127,6 +145,31 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None,
             last_poll=db.get_state("last_poll"), worker_error=db.get_state("worker_error"),
             progress=json.loads(db.get_state("progress_bar") or "{}") if cfg.progress_bar else None,
             progress_running=progress is not None)
+
+    @app.get("/admin/donations.csv")
+    @require_admin
+    def admin_donations_csv():
+        names = {str(r["id"]): r["name"] for r in db.streamer_rows()}
+        buf = io.StringIO()
+        # Semicolons + BOM: opens directly in Excel with a Swiss/French locale.
+        w = csv.writer(buf, delimiter=";")
+        rows = db.all_donations()
+        # One extra column per "Key: value" field found in any email, in first-seen order.
+        all_fields = [donation_fields(r) for r in rows]
+        keys = list(dict.fromkeys(k for f in all_fields for k in f))
+        w.writerow(["id", "recu_utc", "donateur", "montant", "devise", "message", "pour",
+                    "statut", "envois", "sujet"] + [f"email: {k}" for k in keys]
+                   + ["texte_email"])
+        for r, fields in zip(rows, all_fields):
+            sends = ", ".join(f"{names.get(dl['streamer_id'], '#' + str(dl['streamer_id']))}: "
+                              f"{dl['status']}" for dl in db.deliveries_for(r["id"]))
+            w.writerow([csv_cell(v) for v in (
+                r["id"], r["received_at"], r["donor"], r["amount"], r["currency"], r["message"],
+                names.get(r["routed_to"], f"#{r['routed_to']}") if r["routed_to"] else "",
+                r["status"], sends, r["subject"], *(fields.get(k, "") for k in keys),
+                r["email_text"])])
+        return Response("﻿" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=dons-twint.csv"})
 
     @app.post("/admin/streamer/<int:streamer_id>")
     @require_admin

@@ -102,3 +102,13 @@ def test_email_text_html_only():
 ])
 def test_sanitize_donor_name(raw, expected):
     assert sanitize_donor_name(raw) == expected
+
+
+def test_extract_fields():
+    from gamersacoeur_notif.parsing import extract_fields
+    text = ("Nom: Alice\nMessage: Bonne\nchance à tous\nVoir https://example.ch/x\n"
+            "Nom: Bob\n12:30 pile\n")
+    f = extract_fields(text)
+    assert f["Nom"] == "Alice" and f["Nom (2)"] == "Bob\n12:30 pile"
+    assert f["Message"] == "Bonne\nchance à tous\nVoir https://example.ch/x"
+    assert "Voir https" not in f and "12" not in f

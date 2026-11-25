@@ -137,3 +137,38 @@ def test_get_user_parses_names(monkeypatch):
                     "twitch": {"id": 9, "name": "gac_twitch", "display_name": "GaC_Twitch"}}
     monkeypatch.setattr(streamlabs.requests, "get", lambda *a, **k: R())
     assert streamlabs.get_user("t") == ("123", ["GaC", "GaC_Twitch", "gac_twitch"])
+
+
+def test_donations_csv_export(client, db):
+    bob = db.add_test_streamer("Bob", ["bob"])
+    d = db.add_donation(message_id="m1", subject="Nouveau don", donor="=HYPERLINK(1)",
+                        amount="12.50", currency="CHF", message="Allez; Bob !",
+                        routed_to=bob.id, status="sent")
+    db.add_delivery(d, bob.id, "sent")
+    assert client.get("/admin/donations.csv").status_code == 401
+    r = client.get("/admin/donations.csv", headers=AUTH)
+    assert r.status_code == 200 and r.mimetype == "text/csv"
+    assert "attachment" in r.headers["Content-Disposition"]
+    import csv, io
+    rows = list(csv.reader(io.StringIO(r.get_data(as_text=True).lstrip("﻿")), delimiter=";"))
+    assert rows[0][:4] == ["id", "recu_utc", "donateur", "montant"]
+    assert rows[1][2] == "'=HYPERLINK(1)"          # can't run as a formula in Excel
+    assert rows[1][3:7] == ["12.50", "CHF", "Allez; Bob !", "Bob"]
+    assert rows[1][8] == "Bob: sent"
+    assert "Exporter en CSV" in client.get("/admin", headers=AUTH).get_data(as_text=True)
+
+
+def test_email_fields_in_admin_and_csv(client, db):
+    db.add_donation(message_id="m2", subject="S", donor="P", amount="5.00", currency="CHF",
+                    message="", routed_to=[], status="sent",
+                    fields={"Donateur": "Jean Dupont", "Email": "j@example.ch"},
+                    email_text="Donateur: Jean Dupont\nEmail: j@example.ch")
+    page = client.get("/admin", headers=AUTH).get_data(as_text=True)
+    assert "Jean Dupont" in page and "Détails de l'email" in page
+    import csv, io
+    text = client.get("/admin/donations.csv", headers=AUTH).get_data(as_text=True)
+    rows = list(csv.reader(io.StringIO(text.lstrip("﻿")), delimiter=";"))
+    h = rows[0]
+    assert h[-3:] == ["email: Donateur", "email: Email", "texte_email"]
+    assert rows[1][h.index("email: Donateur")] == "Jean Dupont"
+    assert rows[1][-1].startswith("Donateur: Jean Dupont")

@@ -63,6 +63,11 @@ class Database:
         self._lock = threading.Lock()
         with self._conn() as c:
             c.executescript(SCHEMA)
+            # Added later: every "Key: value" field of the email (JSON) and its full text.
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(donations)")}
+            for col in ("fields", "email_text"):
+                if col not in cols:
+                    c.execute(f"ALTER TABLE donations ADD COLUMN {col} TEXT")
 
     @contextmanager
     def _conn(self):
@@ -170,13 +175,15 @@ class Database:
                              (message_id,)).fetchone() is not None
 
     def add_donation(self, *, message_id, subject, donor, amount, currency, message,
-                     routed_to, status, detail=None) -> int:
+                     routed_to, status, detail=None, fields=None, email_text=None) -> int:
         with self._conn() as c:
             cur = c.execute(
                 "INSERT INTO donations(message_id, received_at, subject, donor, amount, currency, "
-                "message, routed_to, status, detail) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "message, routed_to, status, detail, fields, email_text) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (message_id, now(), subject, donor, amount, currency, message,
-                 ",".join(routed_to), status, detail),
+                 ",".join(routed_to), status, detail,
+                 json.dumps(fields or {}, ensure_ascii=False), email_text),
             )
             return cur.lastrowid
 
@@ -195,6 +202,10 @@ class Database:
         with self._conn() as c:
             rows = c.execute("SELECT amount FROM donations WHERE amount IS NOT NULL").fetchall()
         return sum((Decimal(r["amount"]) for r in rows), Decimal("0"))
+
+    def all_donations(self) -> list[sqlite3.Row]:
+        with self._conn() as c:
+            return c.execute("SELECT * FROM donations ORDER BY id").fetchall()
 
     def recent_donations(self, limit: int = 50) -> list[sqlite3.Row]:
         with self._conn() as c:

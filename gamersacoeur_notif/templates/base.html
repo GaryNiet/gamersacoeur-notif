@@ -35,6 +35,12 @@
     .ok { color: var(--ok); } .err { color: var(--err); } .muted { color: var(--muted); }
     .flash { padding:10px 14px; border-radius:8px; margin-bottom:14px; background:var(--accent-soft); border:1px solid #bbf7d0; color: var(--ok); }
     .flash.err { background: var(--err-soft); border-color: #f5c2c2; }
+    details.email { margin-top: 6px; }
+    details summary { cursor: pointer; color: var(--accent-dark); font-size: 13px; font-weight: 600; }
+    details.email dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0; font-size: 13px; }
+    details.email dt { color: var(--muted); font-weight: 600; }
+    details.email dd { margin: 0; white-space: pre-wrap; }
+    details.email pre { white-space: pre-wrap; font-size: 12px; background: var(--accent-soft); padding: 8px; border-radius: 6px; max-width: 520px; }
     code, .link { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   </style>
 </head>

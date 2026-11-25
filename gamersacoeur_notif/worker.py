@@ -27,7 +27,8 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
         return None
     message_id = str(msg.get("Message-ID") or "").strip() or make_msgid()
     subject = str(msg.get("Subject", ""))
-    donations = parse_email(subject, email_text(msg), cfg.parsing)
+    text = email_text(msg)
+    donations = parse_email(subject, text, cfg.parsing)
 
     first = None
     for i, parsed in enumerate(donations, 1):
@@ -35,13 +36,15 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
         if db.donation_exists(key):
             log.info("Already processed %s", key)
             continue
-        donation_id = _record(cfg, db, notifier, key, subject, parsed)
+        donation_id = _record(cfg, db, notifier, key, subject, parsed, text)
         first = first or donation_id
     return first
 
 
 def _record(cfg: Config, db: Database, notifier: Notifier, key: str, subject: str,
-            parsed: ParsedDonation) -> int:
+            parsed: ParsedDonation, text: str = "") -> int:
+    """Store the donation (with every field and the full email text) and queue the alerts."""
+    extra = {"fields": parsed.fields, "email_text": text or parsed.text}
     routed = find_streamer(parsed.streamer_hint, db.streamers())
     routed_to = [routed.id] if routed else []
 
@@ -49,14 +52,14 @@ def _record(cfg: Config, db: Database, notifier: Notifier, key: str, subject: st
         donation_id = db.add_donation(
             message_id=key, subject=subject, donor=parsed.donor, amount=None,
             currency=parsed.currency, message=parsed.message, routed_to=routed_to,
-            status="unparsed", detail="amount not found - check parsing.amount regex")
+            status="unparsed", detail="amount not found - check parsing.amount regex", **extra)
         log.warning("Could not find an amount in email %r", subject)
         return donation_id
 
     donation_id = db.add_donation(
         message_id=key, subject=subject, donor=parsed.donor, amount=str(parsed.amount),
         currency=parsed.currency, message=parsed.message, routed_to=routed_to,
-        status="pending", detail=None if routed else "no streamer matched - main only")
+        status="pending", detail=None if routed else "no streamer matched - main only", **extra)
     log.info("Donation #%s: %s %s from %s -> %s", donation_id, parsed.amount,
              parsed.currency, parsed.donor, routed.name if routed else "(main only)")
     queued = notifier.deliver(donation_id, notifier.targets(routed), parsed.donor,

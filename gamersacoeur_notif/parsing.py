@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from html.parser import HTMLParser
@@ -24,6 +24,7 @@ class ParsedDonation:
     donor: str
     message: str
     streamer_hint: str | None  # text where the streamer keyword was searched
+    fields: dict[str, str] = field(default_factory=dict)  # every "Key: value" line
 
 
 # --------------------------------------------------------------------------
@@ -137,6 +138,31 @@ def split_donations(text: str, rules: ParsingConfig) -> list[str]:
     return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
 
 
+_FIELD = re.compile(r"^[ \t]*([^\W\d_][\w '’.\-/]{0,39}?)[ \t]*:(?!//)[ \t]*(.*)$")
+
+
+def extract_fields(text: str) -> dict[str, str]:
+    """Every "Key: value" line of a donation, in order.
+
+    A line without a key continues the previous value (multi-line messages).
+    A repeated key gets " (2)", " (3)"... so nothing is lost.
+    """
+    fields: dict[str, str] = {}
+    last = None
+    for line in text.splitlines():
+        m = _FIELD.match(line)
+        if m:
+            key, n = m.group(1).strip(), 2
+            while key in fields:
+                key = f"{m.group(1).strip()} ({n})"
+                n += 1
+            fields[key] = m.group(2).strip()
+            last = key
+        elif last and line.strip():
+            fields[last] = (fields[last] + "\n" + line.strip()).strip()
+    return fields
+
+
 def parse_email(subject: str, text: str, rules: ParsingConfig) -> list[ParsedDonation]:
     return [parse_donation(subject, block, rules) for block in split_donations(text, rules)]
 
@@ -153,6 +179,7 @@ def parse_donation(subject: str, text: str, rules: ParsingConfig) -> ParsedDonat
         donor=donor,
         message=_extract(rules.message, full) or "",
         streamer_hint=hint,
+        fields=extract_fields(text),
     )
 
 

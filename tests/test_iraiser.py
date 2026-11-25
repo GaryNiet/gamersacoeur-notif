@@ -110,3 +110,23 @@ def test_other_emails_ignored(real, api):
     assert run(real, make_email("Merci pour votre don", subject=SUBJECT,
                                 sender=SENDER)) is None   # no "A Streameur-euses:"
     assert api.calls == []
+
+
+def test_all_email_fields_are_kept(real, api):
+    cfg, db, _ = real
+    two = body(dict(ONE, amount="10", pseudo="P1", message="M1"),
+               dict(ONE, amount="15.50", pseudo="P2", streamer="Alice", message="Ligne 1"),
+               total="25.50 CHF")
+    run(real, make_email(two, subject=SUBJECT, sender=SENDER, msgid="<f@x>"))
+    import json
+    rows = sorted(db.all_donations(), key=lambda r: r["id"])
+    f1, f2 = (json.loads(r["fields"]) for r in rows)
+    assert f1 == {"Donateur": "TestPrénom, TestNom", "Pseudo": "P1",
+                  "A Streameur-euses": "TestAStreamer", "Don": "10",
+                  "Date": "2026-11-25 18:06:19 Time: 11-25 2026 - 06h06", "Message": "M1",
+                  "Postal Address": "TestAdresse N/A, 1010 TestVille CH",
+                  "Email": "donateur@example.ch"}
+    assert f2["Pseudo"] == "P2" and f2["Don"] == "15.50"
+    assert all("Montant collecté : 25.50 CHF" in r["email_text"] for r in rows)
+    # The alert itself still only carries the pseudo, amount and message.
+    assert api.calls[0][2]["name"] == "P1"
