@@ -6,12 +6,14 @@
     python -m gamersacoeur_notif link           # print the link to send to all streamers
     python -m gamersacoeur_notif parse mail.eml # show what would be extracted from an email
     python -m gamersacoeur_notif check-mail     # test the mailbox connection (sends nothing)
+    python -m gamersacoeur_notif check-progress # compute + upload the progress bar once
 """
 
 from __future__ import annotations
 
 import argparse
 import email
+import json
 import logging
 import os
 import sys
@@ -21,6 +23,7 @@ from .config import ConfigError, load_config
 from .db import Database
 from .mailbox import matches_filters, open_mailbox
 from .notifier import Notifier
+from .progress import ProgressBar
 from .parsing import email_text, find_streamer, parse_donation
 from .web import connect_link, create_app
 from .worker import Worker
@@ -60,6 +63,8 @@ def main(argv=None) -> int:
     sub.add_parser("web")
     sub.add_parser("worker")
     sub.add_parser("link")
+    cp = sub.add_parser("check-progress")
+    cp.add_argument("--no-upload", action="store_true", help="only print the values")
     cm = sub.add_parser("check-mail")
     cm.add_argument("-n", type=int, default=5, help="how many recent emails to show")
     p = sub.add_parser("parse")
@@ -102,6 +107,25 @@ def main(argv=None) -> int:
             describe(cfg, msg, db.streamers(), show_text=False)
         return 0
 
+    if args.cmd == "check-progress":
+        if not cfg.progress_bar:
+            print("No 'progress_bar' section in the config.", file=sys.stderr)
+            return 2
+        pb = ProgressBar(cfg.progress_bar, Database(cfg.database))
+        data = pb.compute()
+        print(f"{cfg.progress_bar.filename}: {json.dumps(data)}")
+        if args.no_upload:
+            return 0
+        f = cfg.progress_bar.ftp
+        print(f"Uploading to {'ftps' if f.tls else 'ftp'}://{f.host}/{f.directory} ...")
+        try:
+            pb.upload(data)
+        except Exception as exc:  # noqa: BLE001 - show the reason plainly
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+        print("OK - uploaded.")
+        return 0
+
     if args.cmd == "link":
         print(connect_link(cfg))
         return 0
@@ -112,12 +136,17 @@ def main(argv=None) -> int:
     notifier = Notifier(cfg, db)
     if args.cmd in ("run", "worker"):
         notifier.resume_interrupted()
+    progress = None
+    if cfg.progress_bar and cfg.progress_bar.enabled and args.cmd in ("run", "worker"):
+        progress = ProgressBar(cfg.progress_bar, db)
+        progress.start_thread()
+    worker = Worker(cfg, db, notifier, on_donation=progress.trigger if progress else None)
     if args.cmd == "worker":
-        Worker(cfg, db, notifier).run_forever()
+        worker.run_forever()
         return 0
     if args.cmd == "run":
-        Worker(cfg, db, notifier).start_thread()
-    app = create_app(cfg, db, notifier)
+        worker.start_thread()
+    app = create_app(cfg, db, notifier, progress)
     try:
         from waitress import serve
     except ImportError:  # fall back to Flask's development server

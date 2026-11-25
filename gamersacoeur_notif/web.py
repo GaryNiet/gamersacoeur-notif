@@ -36,7 +36,8 @@ def connect_link(cfg: Config) -> str:
     return public_base_url(cfg) + "/"
 
 
-def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> Flask:
+def create_app(cfg: Config, db: Database, notifier: Notifier | None = None,
+               progress=None) -> Flask:
     app = Flask(__name__)
     app.secret_key = cfg.secret_key
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
@@ -123,7 +124,9 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
             "admin.html", cfg=cfg, streamers=rows, names=names, donations=donations,
             link=connect_link(cfg), keywords=lambda r: ", ".join(json.loads(r["keywords"])),
             has_main=any(r["is_main"] and r["enabled"] for r in rows),
-            last_poll=db.get_state("last_poll"), worker_error=db.get_state("worker_error"))
+            last_poll=db.get_state("last_poll"), worker_error=db.get_state("worker_error"),
+            progress=json.loads(db.get_state("progress_bar") or "{}") if cfg.progress_bar else None,
+            progress_running=progress is not None)
 
     @app.post("/admin/streamer/<int:streamer_id>")
     @require_admin
@@ -152,6 +155,15 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None) -> F
         status, detail = notifier.send_test(str(streamer_id))
         flash(f"Test {row['name']}: {status} {detail}",
               "ok" if status in ("sent", "dry_run", "queued") else "err")
+        return redirect(url_for("admin"))
+
+    @app.post("/admin/progress")
+    @require_admin
+    def admin_progress():
+        if progress is None:
+            abort(404)
+        progress.trigger()
+        flash("Mise à jour de la barre de progression demandée", "ok")
         return redirect(url_for("admin"))
 
     @app.post("/admin/retry/<int:donation_id>")

@@ -123,6 +123,34 @@ class StreamlabsConfig:
 
 
 @dataclass
+class FtpConfig:
+    host: str
+    username: str
+    password: str
+    port: int = 21
+    # true = FTPS (encrypted, "explicit TLS"). Only set false if the server
+    # doesn't support it: plain FTP sends the password unencrypted.
+    tls: bool = True
+    directory: str = ""        # remote folder ("" = the login folder)
+
+
+@dataclass
+class ProgressConfig:
+    """Upload a progress_bar.json (read by the overlay page) over FTP."""
+    ftp: FtpConfig
+    enabled: bool = True
+    objective: float = 4000
+    # Added to the TWINT total ("heros_locaux"), e.g. cash donations. Can be
+    # negative to remove test donations.
+    offset: float = 0
+    # Streamlabs Charity team API; its amount_raised goes in "sl_charity".
+    # Empty = no Streamlabs Charity total.
+    charity_url: str = ""
+    interval_seconds: int = 30
+    filename: str = "progress_bar.json"
+
+
+@dataclass
 class Config:
     mail: MailConfig
     parsing: ParsingConfig
@@ -139,6 +167,7 @@ class Config:
     database: str = "gamersacoeur.sqlite3"
     host: str = "127.0.0.1"
     port: int = 8000
+    progress_bar: ProgressConfig | None = None
 
     def is_main_account(self, names: list[str]) -> bool:
         wanted = {n.strip().casefold() for n in self.main_accounts}
@@ -181,8 +210,18 @@ def config_from_dict(raw: dict) -> Config:
                     "new_streamers_enabled")}
     mail = _build(MailConfig, raw["mail"], "mail")
     mail.validate()
+
+    progress = None
+    if raw.get("progress_bar"):
+        pb = dict(raw["progress_bar"])
+        if "ftp" not in pb:
+            raise ConfigError("progress_bar.ftp (host, username, password) is required")
+        pb["ftp"] = _build(FtpConfig, pb["ftp"] or {}, "progress_bar.ftp")
+        progress = _build(ProgressConfig, pb, "progress_bar")
+
     return Config(
         mail=mail,
+        progress_bar=progress,
         parsing=_build(ParsingConfig, raw.get("parsing") or {}, "parsing"),
         streamlabs=sl,
         main_accounts=[str(m) for m in main],

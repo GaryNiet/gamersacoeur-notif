@@ -87,6 +87,28 @@ streamlabs:
   # true = log only, send nothing (good for testing the email parsing)
   dry_run: false
 
+# --- Progress bar ----------------------------------------------------------
+# Uploads progress_bar.json over FTP for the progress bar overlay page:
+#   {"objective": 4000, "sl_charity": <Streamlabs Charity total>,
+#    "heros_locaux": <TWINT total received by this app + offset>}
+# Updated right after each donation and every interval_seconds; only
+# uploaded when a value changed. Remove this section to disable it.
+progress_bar:
+  objective: 4000
+  # Added to the TWINT total (cash donations...). Negative to remove tests.
+  offset: 0
+  # Streamlabs Charity team API: check the team name for this year's event.
+  charity_url: https://streamlabscharity.com/api/v1/teams/@gamers-a-coeur-2026/gamers-a-coeur-2026
+  interval_seconds: 30
+  filename: progress_bar.json
+  ftp:
+    host: ftp.example.ch
+    username: charity@example.ch
+    password: ${FTP_PASSWORD}
+    # true = FTPS (encrypted). Set false only if the server refuses it.
+    tls: true
+    directory: ""              # remote folder, "" = where the login lands
+
 # --- Streamers -----------------------------------------------------------
 # There is no list of streamers: anyone who opens the app's home page (see
 # "python -m gamersacoeur_notif link") and logs in with Streamlabs becomes a

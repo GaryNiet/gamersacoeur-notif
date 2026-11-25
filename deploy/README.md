@@ -40,7 +40,7 @@ The script does the following:
 sudo nano /etc/gamersacoeur-notif/env
 ```
 
-Replace the `CHANGE_ME` values with the Microsoft client secret (`MS_CLIENT_SECRET`) and the Streamlabs client ID and secret. If a value contains spaces or `#`, put it in single quotes: `MS_CLIENT_SECRET='abc#1'`.
+Replace the `CHANGE_ME` values with the Microsoft client secret (`MS_CLIENT_SECRET`), the FTP password for the progress bar (`FTP_PASSWORD`) and the Streamlabs client ID and secret. If a value contains spaces or `#`, put it in single quotes: `MS_CLIENT_SECRET='abc#1'`.
 
 ```bash
 sudo nano /etc/gamersacoeur-notif/config.yaml

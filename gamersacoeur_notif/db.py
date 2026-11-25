@@ -7,6 +7,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from .config import Streamer
 
@@ -188,6 +189,12 @@ class Database:
     def get_donation(self, donation_id: int) -> sqlite3.Row | None:
         with self._conn() as c:
             return c.execute("SELECT * FROM donations WHERE id=?", (donation_id,)).fetchone()
+
+    def donations_total(self) -> Decimal:
+        """Sum of every donation whose amount could be read."""
+        with self._conn() as c:
+            rows = c.execute("SELECT amount FROM donations WHERE amount IS NOT NULL").fetchall()
+        return sum((Decimal(r["amount"]) for r in rows), Decimal("0"))
 
     def recent_donations(self, limit: int = 50) -> list[sqlite3.Row]:
         with self._conn() as c:

@@ -72,6 +72,7 @@ if [[ ! -f "$ETC/env" ]]; then
 GAC_SECRET_KEY=$secret
 GAC_ADMIN_PASSWORD=$adminpw
 MS_CLIENT_SECRET=CHANGE_ME
+FTP_PASSWORD=CHANGE_ME
 # GAC_MAIL_PASSWORD=   (only if mail.provider is imap)
 STREAMLABS_CLIENT_ID=CHANGE_ME
 STREAMLABS_CLIENT_SECRET=CHANGE_ME
@@ -109,7 +110,7 @@ echo
 if grep -q CHANGE_ME "$ETC/env"; then
   cat <<EOF
 Almost done. Next:
-  1. sudo nano $ETC/env           # Microsoft client secret + Streamlabs client id/secret
+  1. sudo nano $ETC/env           # Microsoft client secret, FTP password, Streamlabs id/secret
   2. sudo nano $ETC/config.yaml   # mailbox, parsing rules, main_accounts
   3. Test the mailbox:
      sudo -u gac env \$(sudo grep -v '^#' $ETC/env | xargs) PYTHONPATH=$APP \\

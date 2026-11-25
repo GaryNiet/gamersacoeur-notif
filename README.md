@@ -86,6 +86,27 @@ Then check the connection. This shows the latest emails and what would be read f
 
 `body_contains: ["A Streameur-euses:"]` makes sure only donation emails count. Everything else in the mailbox is ignored.
 
+### Progress bar (optional)
+
+The `progress_bar` section uploads `progress_bar.json` over FTP. It's the same file and format as previous years, so the existing overlay page keeps working:
+
+```json
+{"objective": 4000, "sl_charity": 1234.5, "heros_locaux": 678.0}
+```
+
+- `heros_locaux` is the total of every TWINT donation the app has read, plus `offset`. Use `offset` for cash donations, or set it negative to cancel test donations.
+- `sl_charity` is the Streamlabs Charity team total (`charity_url`). Update the team name for each year's event.
+
+The file is refreshed right after each donation and every `interval_seconds`, and only uploaded when a value changed. It uses FTPS (encrypted) by default; set `ftp.tls: false` only if the server refuses it. Put the FTP password in the `FTP_PASSWORD` environment variable.
+
+Test it once. This computes the values and uploads them; add `--no-upload` to only print them:
+
+```bash
+.venv/bin/python -m gamersacoeur_notif check-progress
+```
+
+The admin page shows the current values, when they were last uploaded, any FTP error, and a **Mettre à jour maintenant** button.
+
 ### 4. Teach it the email format
 
 As soon as you have a real donation email, download it as `.eml` (in Gmail: ⋮ → *Download message*) and run:
@@ -102,7 +123,7 @@ Set the secrets in the environment, then start everything:
 
 ```bash
 export GAC_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")  # keep it fixed!
-export GAC_ADMIN_PASSWORD=...  MS_CLIENT_SECRET=...
+export GAC_ADMIN_PASSWORD=...  MS_CLIENT_SECRET=...  FTP_PASSWORD=...
 export STREAMLABS_CLIENT_ID=...  STREAMLABS_CLIENT_SECRET=...
 
 .venv/bin/python -m gamersacoeur_notif run      # web app + mailbox watcher

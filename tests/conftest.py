@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def raw_cfg(monkeypatch, tmp_path):
     raw = yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
+    raw.pop("progress_bar", None)          # tests that need it add their own
     raw["secret_key"] = "test-secret"
     raw["admin_password"] = "adminpw"
     # Tests use their own simple email format, independent of the example.

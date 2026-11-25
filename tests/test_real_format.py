@@ -74,6 +74,7 @@ def test_routing_on_real_format(rules, people):
 
 def test_body_filter(example, monkeypatch):
     monkeypatch.setenv("MS_CLIENT_SECRET", "x")
+    monkeypatch.setenv("FTP_PASSWORD", "x")
     for k in ("GAC_SECRET_KEY", "GAC_ADMIN_PASSWORD", "STREAMLABS_CLIENT_ID",
               "STREAMLABS_CLIENT_SECRET"):
         monkeypatch.setenv(k, "x")

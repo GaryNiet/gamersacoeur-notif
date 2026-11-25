@@ -1,1 +1,3 @@
 pytest>=8
+pyftpdlib>=2.0
+pyopenssl>=24

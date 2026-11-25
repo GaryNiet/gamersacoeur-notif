@@ -53,10 +53,12 @@ def process_message(cfg: Config, db: Database, notifier: Notifier,
 
 
 class Worker:
-    def __init__(self, cfg: Config, db: Database, notifier: Notifier | None = None):
+    def __init__(self, cfg: Config, db: Database, notifier: Notifier | None = None,
+                 on_donation=None):
         self.cfg = cfg
         self.db = db
         self.notifier = notifier or Notifier(cfg, db)
+        self.on_donation = on_donation      # called after each new donation
         self._stop = threading.Event()
 
     def stop(self) -> None:
@@ -74,7 +76,9 @@ class Worker:
                 while not self._stop.is_set():
                     for uid, msg in box.fetch_new():
                         try:
-                            process_message(self.cfg, self.db, self.notifier, msg)
+                            if process_message(self.cfg, self.db, self.notifier,
+                                               msg) is not None and self.on_donation:
+                                self.on_donation()
                         except Exception:  # noqa: BLE001 - never block the mailbox
                             log.exception("Failed to process email %s", uid)
                         box.mark_done(uid)
