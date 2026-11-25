@@ -5,23 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Gamers à Coeur – Notifs TWINT{% endblock %}</title>
   <style>
-    :root { --bg:#f6f6f8; --fg:#1b1b1f; --card:#fff; --muted:#666; --accent:#e4003a; --ok:#137333; --err:#b3261e; --line:#ddd; }
-    @media (prefers-color-scheme: dark) { :root { --bg:#141417; --fg:#eee; --card:#1f1f24; --muted:#aaa; --line:#333; --ok:#6ecf8a; --err:#f28b82; } }
+    :root {
+      --bg:#ffffff; --fg:#14281d; --card:#ffffff; --muted:#5f7368; --line:#dcebe1;
+      --accent:#16a34a; --accent-dark:#15803d; --accent-soft:#ecfdf3;
+      --ok:#15803d; --err:#c62828; --err-soft:#fdecec;
+    }
     * { box-sizing: border-box; }
-    body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
-    h1 { margin-top: 0; } h1 span { color: var(--accent); }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; overflow-x:auto; }
+    body { margin:0; font:15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+    body::before { content:""; display:block; height:6px; background:linear-gradient(90deg, var(--accent-dark), #4ade80); }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 16px; }
+    h1 { margin:0 0 24px; font-size:28px; letter-spacing:-0.01em; } h1 span { color: var(--accent); }
+    h2 { margin-top:0; }
+    .card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:12px;
+            padding:18px 20px; margin-bottom:16px; overflow-x:auto; box-shadow:0 1px 3px rgba(20,83,45,.06); }
+    .card.err { border-left-color: var(--err); background: var(--err-soft); }
     table { border-collapse: collapse; width: 100%; }
-    th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align: top; }
-    th { font-size: 13px; color: var(--muted); font-weight: 600; }
-    .btn { display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 12px; font:inherit; cursor:pointer; text-decoration:none; }
-    .btn.big { padding: 12px 22px; font-size: 17px; }
-    .btn.ghost { background: transparent; color: var(--fg); border:1px solid var(--line); }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align: top; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-dark); font-weight: 700; background: var(--accent-soft); }
+    tbody tr:hover td, tr:hover td { background: #f7fdf9; }
+    input[type=text], input:not([type]) { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; }
+    input:focus { outline:2px solid #86efac; border-color: var(--accent); }
+    .btn { display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:7px 14px; font:inherit; font-weight:600;
+           cursor:pointer; text-decoration:none; transition: background .15s, transform .05s; }
+    .btn:hover { background: var(--accent-dark); } .btn:active { transform: translateY(1px); }
+    .btn.big { padding: 13px 26px; font-size: 17px; border-radius: 10px; box-shadow: 0 4px 12px rgba(22,163,74,.25); }
+    .btn.ghost { background: #fff; color: var(--accent-dark); border:1px solid #bbf7d0; }
+    .btn.ghost:hover { background: var(--accent-soft); }
     form.inline { display:inline; }
     .ok { color: var(--ok); } .err { color: var(--err); } .muted { color: var(--muted); }
-    .flash { padding:8px 12px; border-radius:6px; margin-bottom:12px; background:var(--card); border:1px solid var(--line); }
-    code, .link { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .flash { padding:10px 14px; border-radius:8px; margin-bottom:14px; background:var(--accent-soft); border:1px solid #bbf7d0; color: var(--ok); }
+    .flash.err { background: var(--err-soft); border-color: #f5c2c2; }
+    code, .link { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   </style>
 </head>
 <body><main>
