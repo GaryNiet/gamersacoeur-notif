@@ -168,7 +168,7 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None,
                 names.get(r["routed_to"], f"#{r['routed_to']}") if r["routed_to"] else "",
                 r["status"], sends, r["subject"], *(fields.get(k, "") for k in keys),
                 r["email_text"])])
-        return Response("﻿" + buf.getvalue(), mimetype="text/csv; charset=utf-8",
+        return Response("﻿" + buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=dons-twint.csv"})
 
     @app.post("/admin/streamer/<int:streamer_id>")
