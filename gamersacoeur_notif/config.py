@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
@@ -178,9 +178,19 @@ class Config:
         return any(n.strip().casefold() in wanted for n in names if n)
 
 
+def _stringify(obj):
+    """YAML reads `secret_key: 123456` or `password: 1234` as numbers: turn
+    numbers back into text for every field that expects text."""
+    for f in fields(obj):
+        value = getattr(obj, f.name)
+        if str(f.type).startswith("str") and isinstance(value, (int, float)):
+            setattr(obj, f.name, str(value))
+    return obj
+
+
 def _build(cls, data: dict, section: str):
     try:
-        return cls(**data)
+        return _stringify(cls(**data))
     except TypeError as exc:
         raise ConfigError(f"Invalid '{section}' section: {exc}") from exc
 
@@ -223,11 +233,11 @@ def config_from_dict(raw: dict) -> Config:
         pb["ftp"] = _build(FtpConfig, pb["ftp"] or {}, "progress_bar.ftp")
         progress = _build(ProgressConfig, pb, "progress_bar")
 
-    return Config(
+    return _stringify(Config(
         mail=mail,
         progress_bar=progress,
         parsing=_build(ParsingConfig, raw.get("parsing") or {}, "parsing"),
         streamlabs=sl,
         main_accounts=[str(m) for m in main],
         **top,
-    )
+    ))

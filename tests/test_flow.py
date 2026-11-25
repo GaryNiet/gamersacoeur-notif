@@ -137,3 +137,27 @@ def test_config_rejects_old_streamers_list(raw_cfg):
 def test_config_main_accounts(cfg):
     assert cfg.is_main_account(["foo", "gamersacoeur"])
     assert not cfg.is_main_account(["foo"])
+
+
+def test_numeric_secrets_in_yaml(raw_cfg):
+    """`secret_key: 123456` in YAML is a number: it must still work as text."""
+    raw_cfg["secret_key"] = 123456
+    raw_cfg["admin_password"] = 2026
+    raw_cfg["mail"]["password"] = 1234
+    raw_cfg["streamlabs"]["client_id"] = 4242
+    raw_cfg["progress_bar"] = {"ftp": {"host": "h", "username": "u", "password": 99}}
+    cfg = config_from_dict(raw_cfg)
+    assert cfg.secret_key == "123456" and cfg.admin_password == "2026"
+    assert cfg.mail.password == "1234" and cfg.streamlabs.client_id == "4242"
+    assert cfg.progress_bar.ftp.password == "99"
+    assert cfg.port == 8000 and cfg.mail.port == 993          # real numbers untouched
+
+
+def test_home_page_with_numeric_secret_key(raw_cfg):
+    from gamersacoeur_notif.db import Database
+    from gamersacoeur_notif.web import create_app
+
+    raw_cfg["secret_key"] = 123456
+    cfg = config_from_dict(raw_cfg)
+    app = create_app(cfg, Database(cfg.database))
+    assert app.test_client().get("/").status_code == 200
