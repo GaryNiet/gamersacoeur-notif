@@ -169,6 +169,6 @@ def test_email_fields_in_admin_and_csv(client, db):
     text = client.get("/admin/donations.csv", headers=AUTH).get_data(as_text=True)
     rows = list(csv.reader(io.StringIO(text.lstrip("﻿")), delimiter=";"))
     h = rows[0]
-    assert h[-3:] == ["email: Donateur", "email: Email", "texte_email"]
+    assert h[-2:] == ["email: Donateur", "email: Email"]      # no full email text
     assert rows[1][h.index("email: Donateur")] == "Jean Dupont"
-    assert rows[1][-1].startswith("Donateur: Jean Dupont")
+    assert len(rows[1]) == len(h)

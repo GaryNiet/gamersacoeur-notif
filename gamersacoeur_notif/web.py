@@ -158,16 +158,14 @@ def create_app(cfg: Config, db: Database, notifier: Notifier | None = None,
         all_fields = [donation_fields(r) for r in rows]
         keys = list(dict.fromkeys(k for f in all_fields for k in f))
         w.writerow(["id", "recu_utc", "donateur", "montant", "devise", "message", "pour",
-                    "statut", "envois", "sujet"] + [f"email: {k}" for k in keys]
-                   + ["texte_email"])
+                    "statut", "envois", "sujet"] + [f"email: {k}" for k in keys])
         for r, fields in zip(rows, all_fields):
             sends = ", ".join(f"{names.get(dl['streamer_id'], '#' + str(dl['streamer_id']))}: "
                               f"{dl['status']}" for dl in db.deliveries_for(r["id"]))
             w.writerow([csv_cell(v) for v in (
                 r["id"], r["received_at"], r["donor"], r["amount"], r["currency"], r["message"],
                 names.get(r["routed_to"], f"#{r['routed_to']}") if r["routed_to"] else "",
-                r["status"], sends, r["subject"], *(fields.get(k, "") for k in keys),
-                r["email_text"])])
+                r["status"], sends, r["subject"], *(fields.get(k, "") for k in keys))])
         return Response("﻿" + buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=dons-twint.csv"})
 
