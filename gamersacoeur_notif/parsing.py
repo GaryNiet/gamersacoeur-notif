@@ -80,8 +80,14 @@ def email_text(msg: EmailMessage) -> str:
 # --------------------------------------------------------------------------
 # Text -> donation
 # --------------------------------------------------------------------------
-def _extract(pattern: str | None, text: str) -> str | None:
+def _extract(pattern: str | list[str] | None, text: str) -> str | None:
     if not pattern:
+        return None
+    if isinstance(pattern, list):
+        for p in pattern:
+            val = _extract(p, text)
+            if val:
+                return val
         return None
     m = re.search(pattern, text, _FLAGS)
     if not m:

@@ -15,6 +15,7 @@ from email.message import EmailMessage
 
 from .config import MailConfig
 from .db import Database
+from .parsing import email_text
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,15 @@ class Mailbox:
         if uid > self.last_uid:
             self.db.set_state(f"last_uid:{self._key}", str(uid))
 
+    def recent(self, n: int = 5) -> list[EmailMessage]:
+        """The n most recent messages of the folder (newest first), for checking."""
+        out = []
+        for uid in sorted(self._all_uids())[-n:][::-1]:
+            typ, data = self.conn.uid("FETCH", str(uid), "(BODY.PEEK[])")
+            if typ == "OK" and data and isinstance(data[0], tuple):
+                out.append(email.message_from_bytes(data[0][1], policy=policy.default))
+        return out
+
     def fetch_new(self) -> list[tuple[int, EmailMessage]]:
         """Return (uid, message) for every email newer than the last processed one."""
         self.conn.noop()  # lets the server report new mail
@@ -98,7 +108,19 @@ def matches_filters(msg: EmailMessage, cfg: MailConfig) -> bool:
         return False
     if cfg.subject_contains and not any(f.lower() in subject for f in cfg.subject_contains):
         return False
+    if cfg.body_contains:
+        body = email_text(msg).lower()
+        if not any(f.lower() in body for f in cfg.body_contains):
+            return False
     return True
+
+
+def open_mailbox(cfg: MailConfig, db: Database):
+    """The mailbox reader for ``cfg.provider``."""
+    if cfg.provider == "graph":
+        from .graph import GraphMailbox
+        return GraphMailbox(cfg, db)
+    return Mailbox(cfg, db)
 
 
 def _quote(folder: str) -> str:

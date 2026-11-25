@@ -4,7 +4,7 @@
 <h1>Admin <span>TWINT</span> → Streamlabs</h1>
 
 <div class="card">
-  <strong>Boîte mail :</strong> {{ cfg.mail.username }} @ {{ cfg.mail.host }} / {{ cfg.mail.folder }}<br>
+  <strong>Boîte mail :</strong> {{ cfg.mail.description }}<br>
   <strong>Dernière vérification :</strong> {{ last_poll or 'jamais' }}
   {% if worker_error %}<br><span class="err">Erreur : {{ worker_error }}</span>{% endif %}<br>
   <strong>Espacement :</strong> {{ cfg.streamlabs.min_interval_seconds | round | int }} s minimum entre deux alertes sur un même compte<br>

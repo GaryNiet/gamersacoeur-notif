@@ -40,13 +40,20 @@ The script does the following:
 sudo nano /etc/gamersacoeur-notif/env
 ```
 
-Replace the `CHANGE_ME` values with the mailbox password and the Streamlabs client ID and secret. If a value contains spaces or `#`, put it in single quotes: `GAC_MAIL_PASSWORD='my pass#1'`.
+Replace the `CHANGE_ME` values with the Microsoft client secret (`MS_CLIENT_SECRET`) and the Streamlabs client ID and secret. If a value contains spaces or `#`, put it in single quotes: `MS_CLIENT_SECRET='abc#1'`.
 
 ```bash
 sudo nano /etc/gamersacoeur-notif/config.yaml
 ```
 
 Set the mailbox, the email filters, the parsing rules and `main_accounts` (the Streamlabs/Twitch name of the account that gets every donation). `redirect_uri` is already set to your domain. In the Streamlabs app settings, set the **same** redirect URI: `https://notif.yourdomain.ch/callback`.
+
+Check the mailbox connection. This reads the 5 latest emails and sends nothing:
+
+```bash
+sudo -u gac env $(sudo grep -v '^#' /etc/gamersacoeur-notif/env | xargs) PYTHONPATH=/opt/gamersacoeur-notif \
+  /opt/gamersacoeur-notif/.venv/bin/python -m gamersacoeur_notif -c /etc/gamersacoeur-notif/config.yaml check-mail
+```
 
 Then start the app and watch the logs:
 
@@ -64,7 +71,7 @@ You should see `Connected to imap...`. Open `https://notif.yourdomain.ch/admin` 
 | Logs | `sudo journalctl -u gamersacoeur-notif -f` |
 | Restart after editing the config | `sudo systemctl restart gamersacoeur-notif` |
 | Update to the latest code | `sudo bash /opt/gamersacoeur-notif/deploy/update.sh` |
-| Test a real email's parsing | copy the `.eml` to the server, then `sudo -u gac env $(sudo cat /etc/gamersacoeur-notif/env \| xargs) PYTHONPATH=/opt/gamersacoeur-notif /opt/gamersacoeur-notif/.venv/bin/python -m gamersacoeur_notif -c /etc/gamersacoeur-notif/config.yaml parse mail.eml` |
+| Check the mailbox and parsing | the `check-mail` command above |
 | Backup (streamer tokens + donations) | `sudo cp /var/lib/gamersacoeur-notif/gamersacoeur.sqlite3 ~/backup.sqlite3` |
 
 The service starts on boot and restarts automatically if it crashes.

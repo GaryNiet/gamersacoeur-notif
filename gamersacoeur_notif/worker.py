@@ -9,7 +9,7 @@ from email.utils import make_msgid
 
 from .config import Config
 from .db import Database, now
-from .mailbox import Mailbox, matches_filters
+from .mailbox import matches_filters, open_mailbox
 from .notifier import Notifier
 from .parsing import email_text, find_streamer, parse_donation
 
@@ -65,10 +65,10 @@ class Worker:
     def run_forever(self) -> None:
         backoff = 5
         while not self._stop.is_set():
-            box = Mailbox(self.cfg.mail, self.db)
+            box = open_mailbox(self.cfg.mail, self.db)
             try:
                 box.connect()
-                log.info("Connected to %s/%s", self.cfg.mail.host, self.cfg.mail.folder)
+                log.info("Connected to %s", self.cfg.mail.description)
                 self.db.set_state("worker_error", "")
                 backoff = 5
                 while not self._stop.is_set():
@@ -76,7 +76,7 @@ class Worker:
                         try:
                             process_message(self.cfg, self.db, self.notifier, msg)
                         except Exception:  # noqa: BLE001 - never block the mailbox
-                            log.exception("Failed to process email UID %s", uid)
+                            log.exception("Failed to process email %s", uid)
                         box.mark_done(uid)
                     self.db.set_state("last_poll", now())
                     self._stop.wait(self.cfg.mail.poll_seconds)

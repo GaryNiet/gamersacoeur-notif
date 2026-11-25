@@ -12,34 +12,60 @@ host: 0.0.0.0
 port: 8000
 
 mail:
-  # Gmail: imap.gmail.com + an App Password (Google account > Security >
-  # 2-Step Verification > App passwords).  Infomaniak: mail.infomaniak.com.
-  # Outlook/Hotmail: outlook.office365.com
-  host: imap.gmail.com
-  port: 993
-  username: dons@example.ch
-  password: ${GAC_MAIL_PASSWORD}
-  folder: INBOX
+  # graph = Microsoft 365 / Outlook through Microsoft Graph. Needs an app
+  #         registration in Entra ID (portal.azure.com) with the APPLICATION
+  #         permission Mail.Read + admin consent, and a client secret.
+  # imap  = Gmail (with an App Password), Infomaniak, ... (see below)
+  provider: graph
+  tenant_id: 00000000-0000-0000-0000-000000000000   # Entra ID > Overview > Tenant ID
+  client_id: 00000000-0000-0000-0000-000000000000   # App registration > Application (client) ID
+  client_secret: ${MS_CLIENT_SECRET}                # App registration > Certificates & secrets
+  mailbox: dons@example.ch                          # the mailbox to read
+  # inbox, or the name of a folder (top level or directly under Inbox)
+  folder: inbox
+
+  # For IMAP instead, replace the block above with:
+  # provider: imap
+  # host: imap.gmail.com        # Infomaniak: mail.infomaniak.com
+  # port: 993
+  # username: dons@example.ch
+  # password: ${GAC_MAIL_PASSWORD}
+  # folder: INBOX
+
   poll_seconds: 15
   # Only emails matching ALL of these filters (any entry in each list,
   # case-insensitive substring) are treated as donations. Leave a list empty
   # to disable that filter.
-  from_contains: ["noreply@payment-provider.example"]
-  subject_contains: ["Nouveau don", "New donation"]
+  from_contains: []
+  subject_contains: []
+  body_contains: ["A Streameur-euses:"]
   # false = on the very first start, ignore emails already in the mailbox.
   process_existing: false
 
 # How to read a donation email. Each entry is a regular expression applied to
-# the subject + body text; the first (...) group is the value.
-# !! Adapt these once you have a real email: save it as .eml and run
+# the subject + body text; the first (...) group is the value. A list of
+# regexes means "the first one that finds something".
+# Check them on a real email: save it as .eml and run
 #      python -m gamersacoeur_notif parse sample.eml
+#
+# Expected email (one field per line):
+#   Donateur: Jean, Dupont
+#   Pseudo: JeanTheGamer
+#   A Streameur-euses: Alice
+#   Don: 20.00 CHF
+#   Date: ...
+#   Message: Courage !            (or the message on the next line)
+#   Postal Address: ...
+#   Email: ...
 parsing:
-  amount: 'Montant\s*:?\s*(?:CHF)?\s*([\d''.,’ ]+)'
-  donor: '^(?:Nom|Donateur|Name)\s*:\s*(.+)$'
-  message: '^Message\s*:\s*(.+)$'
-  # Where to look for the streamer's name/keyword. Remove this line to search
-  # the whole email (subject + body).
-  streamer: '^(?:Streamer|Pour|Référence|Reference)\s*:\s*(.+)$'
+  amount: '^Don:[ \t]*([^\r\n]+)'
+  # Shown on stream: the pseudo only. Add '^Donateur:[ \t]*([^,\r\n]+)' to
+  # the list to fall back to the first name (only if donors agreed to it).
+  donor: ['^Pseudo:[ \t]*([^\r\n]+)']
+  message: '^Message:[ \t]*(?:\r?\n[ \t]*)?(?!(?:Donateur|Pseudo|A Streameur-euses|Don|Date|Postal Address|Email):)([^\r\n]+)'
+  # Where to look for the streamer's name. Remove this line to search the
+  # whole email (subject + body).
+  streamer: '^A Streameur-euses:[ \t]*([^\r\n]+)'
   currency: CHF
   default_donor: Anonyme
 

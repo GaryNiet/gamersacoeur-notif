@@ -19,7 +19,19 @@ def raw_cfg(monkeypatch, tmp_path):
     raw = yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
     raw["secret_key"] = "test-secret"
     raw["admin_password"] = "adminpw"
-    raw["mail"]["password"] = "x"
+    # Tests use their own simple email format, independent of the example.
+    raw["mail"] = {
+        "provider": "imap", "host": "imap.test", "username": "dons@example.ch",
+        "password": "x", "from_contains": ["noreply@payment-provider.example"],
+        "subject_contains": ["Nouveau don", "New donation"],
+    }
+    raw["parsing"] = {
+        "amount": r"Montant\s*:?\s*(?:CHF)?\s*([\d'.,’ ]+)",
+        "donor": r"^(?:Nom|Donateur|Name)\s*:\s*(.+)$",
+        "message": r"^Message\s*:\s*(.+)$",
+        "streamer": r"^(?:Streamer|Pour|Référence|Reference)\s*:\s*(.+)$",
+        "currency": "CHF", "default_donor": "Anonyme",
+    }
     raw["streamlabs"]["client_id"] = "cid"
     raw["streamlabs"]["client_secret"] = "csecret"
     raw["database"] = str(tmp_path / "db.sqlite3")

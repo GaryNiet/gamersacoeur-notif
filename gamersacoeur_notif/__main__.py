@@ -5,6 +5,7 @@
     python -m gamersacoeur_notif worker         # mailbox worker only
     python -m gamersacoeur_notif link           # print the link to send to all streamers
     python -m gamersacoeur_notif parse mail.eml # show what would be extracted from an email
+    python -m gamersacoeur_notif check-mail     # test the mailbox connection (sends nothing)
 """
 
 from __future__ import annotations
@@ -18,11 +19,35 @@ from email import policy
 
 from .config import ConfigError, load_config
 from .db import Database
-from .mailbox import matches_filters
+from .mailbox import matches_filters, open_mailbox
 from .notifier import Notifier
 from .parsing import email_text, find_streamer, parse_donation
 from .web import connect_link, create_app
 from .worker import Worker
+
+
+def describe(cfg, msg, streamers, show_text: bool) -> None:
+    subject = str(msg.get("Subject", ""))
+    text = email_text(msg)
+    d = parse_donation(subject, text, cfg.parsing)
+    st = find_streamer(d.streamer_hint, streamers)
+    print(f"From     : {msg.get('From')}")
+    print(f"Subject  : {subject}")
+    if not matches_filters(msg, cfg.mail):
+        print("Filters  : IGNORED (does not match from/subject/body filters)")
+        if not show_text:
+            return
+    else:
+        print("Filters  : match -> treated as a donation")
+    print(f"Amount   : {d.amount} {d.currency}" if d.amount else "Amount   : NOT FOUND")
+    print(f"Donor    : {d.donor}")
+    print(f"Message  : {d.message}")
+    print(f"For      : {d.streamer_hint if cfg.parsing.streamer else '(whole email)'}")
+    print(f"Streamer : {st.name if st else 'no match -> main account only'}")
+    if show_text:
+        print(f"Main     : {', '.join(s.name for s in streamers if s.main) or '(none yet)'}")
+        print("--- body text used for parsing ---")
+        print(text)
 
 
 def main(argv=None) -> int:
@@ -35,6 +60,8 @@ def main(argv=None) -> int:
     sub.add_parser("web")
     sub.add_parser("worker")
     sub.add_parser("link")
+    cm = sub.add_parser("check-mail")
+    cm.add_argument("-n", type=int, default=5, help="how many recent emails to show")
     p = sub.add_parser("parse")
     p.add_argument("eml", nargs="+", help=".eml file(s) (in Gmail: ⋮ > Download message)")
     args = ap.parse_args(argv)
@@ -52,21 +79,27 @@ def main(argv=None) -> int:
         for path in args.eml:
             with open(path, "rb") as fh:
                 msg = email.message_from_binary_file(fh, policy=policy.default)
-            subject = str(msg.get("Subject", ""))
-            text = email_text(msg)
-            d = parse_donation(subject, text, cfg.parsing)
-            st = find_streamer(d.streamer_hint, streamers)
             print(f"=== {path}")
-            print(f"From     : {msg.get('From')}")
-            print(f"Subject  : {subject}")
-            print(f"Filters  : {'match' if matches_filters(msg, cfg.mail) else 'IGNORED (from/subject filter)'}")
-            print(f"Amount   : {d.amount} {d.currency}" if d.amount else "Amount   : NOT FOUND")
-            print(f"Donor    : {d.donor}")
-            print(f"Message  : {d.message}")
-            print(f"Streamer : {st.name if st else 'no match -> main account only'}")
-            print(f"Main     : {', '.join(s.name for s in streamers if s.main) or '(none yet)'}")
-            print("--- body text used for parsing ---")
-            print(text)
+            describe(cfg, msg, streamers, show_text=True)
+        return 0
+
+    if args.cmd == "check-mail":
+        db = Database(cfg.database)
+        box = open_mailbox(cfg.mail, db)
+        print(f"Connecting to {cfg.mail.description} ...")
+        try:
+            box.connect()
+        except Exception as exc:  # noqa: BLE001 - show the reason plainly
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+        try:
+            msgs = box.recent(args.n)
+        finally:
+            box.close()
+        print(f"OK - connected. The {len(msgs)} most recent emails (nothing is sent):")
+        for msg in msgs:
+            print()
+            describe(cfg, msg, db.streamers(), show_text=False)
         return 0
 
     if args.cmd == "link":

@@ -47,30 +47,59 @@ class Streamer:
 
 @dataclass
 class MailConfig:
-    host: str
-    username: str
-    password: str
-    port: int = 993
+    # "imap"  = any mailbox with IMAP + password (Gmail app password, Infomaniak...)
+    # "graph" = Microsoft 365 / Outlook through Microsoft Graph, using an app
+    #           registration (client id + secret) with the Mail.Read permission
+    provider: str = "imap"
     folder: str = "INBOX"
-    use_ssl: bool = True
     poll_seconds: int = 15
-    # Only emails matching these (case-insensitive substring) are considered.
+    # Only emails matching ALL these filters are considered (each list: any
+    # entry, case-insensitive substring; an empty list disables the filter).
     from_contains: list[str] = field(default_factory=list)
     subject_contains: list[str] = field(default_factory=list)
+    body_contains: list[str] = field(default_factory=list)
     # On the very first start: False = ignore emails already in the mailbox.
     process_existing: bool = False
+    # --- IMAP
+    host: str = ""
+    username: str = ""
+    password: str = ""
+    port: int = 993
+    use_ssl: bool = True
+    # --- Microsoft Graph
+    tenant_id: str = ""
+    client_id: str = ""
+    client_secret: str = ""
+    mailbox: str = ""          # address of the mailbox to read
+
+    def validate(self) -> None:
+        required = {"imap": ("host", "username", "password"),
+                    "graph": ("tenant_id", "client_id", "client_secret", "mailbox")}
+        if self.provider not in required:
+            raise ConfigError("mail.provider must be 'imap' or 'graph'")
+        missing = [f for f in required[self.provider] if not getattr(self, f)]
+        if missing:
+            raise ConfigError(f"mail.{', mail.'.join(missing)} required for provider "
+                              f"'{self.provider}'")
+
+    @property
+    def description(self) -> str:
+        if self.provider == "graph":
+            return f"{self.mailbox} (Microsoft Graph) / {self.folder}"
+        return f"{self.username} @ {self.host} / {self.folder}"
 
 
 @dataclass
 class ParsingConfig:
     # Regexes applied to "subject + newline + body text". The first capture
-    # group (or the named group ``value``) is the extracted value.
-    amount: str | None = None
-    donor: str | None = None
-    message: str | None = None
+    # group (or the named group ``value``) is the extracted value. Each can
+    # also be a list of regexes: the first one that finds something wins.
+    amount: str | list[str] | None = None
+    donor: str | list[str] | None = None
+    message: str | list[str] | None = None
     # Text in which to look for a streamer keyword. If not set, the whole
     # email (subject + body) is searched.
-    streamer: str | None = None
+    streamer: str | list[str] | None = None
     currency: str = "CHF"
     default_donor: str = "Anonyme"
 
@@ -150,8 +179,10 @@ def config_from_dict(raw: dict) -> Config:
     top = {k: v for k, v in raw.items()
            if k in ("database", "host", "port", "secret_key", "admin_password",
                     "new_streamers_enabled")}
+    mail = _build(MailConfig, raw["mail"], "mail")
+    mail.validate()
     return Config(
-        mail=_build(MailConfig, raw["mail"], "mail"),
+        mail=mail,
         parsing=_build(ParsingConfig, raw.get("parsing") or {}, "parsing"),
         streamlabs=sl,
         main_accounts=[str(m) for m in main],

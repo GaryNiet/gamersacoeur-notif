@@ -71,7 +71,8 @@ if [[ ! -f "$ETC/env" ]]; then
   cat > "$ETC/env" <<EOF
 GAC_SECRET_KEY=$secret
 GAC_ADMIN_PASSWORD=$adminpw
-GAC_MAIL_PASSWORD=CHANGE_ME
+MS_CLIENT_SECRET=CHANGE_ME
+# GAC_MAIL_PASSWORD=   (only if mail.provider is imap)
 STREAMLABS_CLIENT_ID=CHANGE_ME
 STREAMLABS_CLIENT_SECRET=CHANGE_ME
 EOF
@@ -108,10 +109,13 @@ echo
 if grep -q CHANGE_ME "$ETC/env"; then
   cat <<EOF
 Almost done. Next:
-  1. sudo nano $ETC/env           # mail password + Streamlabs client id/secret
-  2. sudo nano $ETC/config.yaml   # mailbox, parsing rules, streamers
-  3. sudo systemctl restart gamersacoeur-notif
-  4. sudo journalctl -u gamersacoeur-notif -f    # check the logs
+  1. sudo nano $ETC/env           # Microsoft client secret + Streamlabs client id/secret
+  2. sudo nano $ETC/config.yaml   # mailbox, parsing rules, main_accounts
+  3. Test the mailbox:
+     sudo -u gac env \$(sudo grep -v '^#' $ETC/env | xargs) PYTHONPATH=$APP \\
+       $APP/.venv/bin/python -m gamersacoeur_notif -c $ETC/config.yaml check-mail
+  4. sudo systemctl restart gamersacoeur-notif
+  5. sudo journalctl -u gamersacoeur-notif -f    # check the logs
 EOF
 else
   systemctl restart gamersacoeur-notif

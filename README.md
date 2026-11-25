@@ -62,13 +62,29 @@ The app requests the scopes `donations.create` and `alerts.create`.
 
 ### 3. Mailbox
 
-Use IMAP access to the mailbox that receives the provider's emails.
+**Microsoft 365 / Outlook (`provider: graph`, the default in the example).** The app reads the mailbox through Microsoft Graph with an app registration. No user login or password is involved. In the Entra admin center (portal.azure.com → *App registrations*):
+
+1. Create or reuse an app registration. Copy its **Application (client) ID** and the **Directory (tenant) ID** into `mail.client_id` / `mail.tenant_id`.
+2. *API permissions* → add **Microsoft Graph → Application permissions → Mail.Read**, then click **Grant admin consent**.
+3. *Certificates & secrets* → **New client secret**. Put the value in the `MS_CLIENT_SECRET` environment variable, never in a committed file.
+4. Set `mail.mailbox` to the address to read. Set `mail.folder` to `inbox` or the name of a folder (top level or directly under the Inbox).
+
+> Mail.Read as an application permission lets the app read **every** mailbox in the organization. To limit it to the donations mailbox, an Exchange admin can add an [application access policy](https://learn.microsoft.com/graph/auth-limit-mailbox-access).
+
+**Any other mailbox (`provider: imap`).** Use IMAP with a password:
 
 - **Gmail**: `imap.gmail.com`, with an *App Password* (requires 2-step verification).
 - **Infomaniak**: `mail.infomaniak.com`.
-- **Outlook**: `outlook.office365.com`.
 
-A dedicated address or folder (for example a Gmail filter → label `Dons`, with `folder: Dons`) keeps things clean. Also set `from_contains` / `subject_contains` so that only real donation emails count.
+Microsoft no longer accepts plain passwords over IMAP; use `graph` for Outlook.
+
+Then check the connection. This shows the latest emails and what would be read from each, and sends nothing:
+
+```bash
+.venv/bin/python -m gamersacoeur_notif check-mail
+```
+
+`body_contains: ["A Streameur-euses:"]` makes sure only donation emails count. Everything else in the mailbox is ignored.
 
 ### 4. Teach it the email format
 
@@ -86,7 +102,7 @@ Set the secrets in the environment, then start everything:
 
 ```bash
 export GAC_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")  # keep it fixed!
-export GAC_ADMIN_PASSWORD=...  GAC_MAIL_PASSWORD=...
+export GAC_ADMIN_PASSWORD=...  MS_CLIENT_SECRET=...
 export STREAMLABS_CLIENT_ID=...  STREAMLABS_CLIENT_SECRET=...
 
 .venv/bin/python -m gamersacoeur_notif run      # web app + mailbox watcher
