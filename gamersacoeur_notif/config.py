@@ -102,6 +102,10 @@ class ParsingConfig:
     streamer: str | list[str] | None = None
     currency: str = "CHF"
     default_donor: str = "Anonyme"
+    # When one email can contain several donations: a regex matching the
+    # first line of each donation. The email is cut at each match and every
+    # part is a separate donation (text before the first match is ignored).
+    split_on: str | None = None
 
 
 @dataclass

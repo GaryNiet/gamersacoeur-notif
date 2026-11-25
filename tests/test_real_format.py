@@ -81,8 +81,10 @@ def test_body_filter(example, monkeypatch):
     from gamersacoeur_notif.config import _expand_env
     cfg = config_from_dict(_expand_env(example))
     assert cfg.mail.provider == "graph"
-    assert matches_filters(make_email(EMAIL, sender="x@y.ch", subject="Hi"), cfg.mail)
-    assert not matches_filters(make_email("Newsletter", sender="x@y.ch"), cfg.mail)
+    sender, subject = "Chaîne du Bonheur <info@bonheur.ch>", "[iRaiser] notification #1 : CAC"
+    assert matches_filters(make_email(EMAIL, sender=sender, subject=subject), cfg.mail)
+    assert not matches_filters(make_email("Newsletter", sender=sender, subject=subject), cfg.mail)
+    assert not matches_filters(make_email(EMAIL, sender="x@y.ch", subject=subject), cfg.mail)
 
 
 def test_provider_validation(raw_cfg):

@@ -11,36 +11,50 @@ from .config import Config
 from .db import Database, now
 from .mailbox import matches_filters, open_mailbox
 from .notifier import Notifier
-from .parsing import email_text, find_streamer, parse_donation
+from .parsing import ParsedDonation, email_text, find_streamer, parse_email
 
 log = logging.getLogger(__name__)
 
 
 def process_message(cfg: Config, db: Database, notifier: Notifier,
                     msg: EmailMessage) -> int | None:
-    """Handle one email. Returns the donation id, or None if it was ignored."""
+    """Handle one email. Returns the (first) new donation id, or None if ignored.
+
+    An email holding several donations (see parsing.split_on) creates one
+    donation per block, with ids "<Message-ID>#1", "#2", ...
+    """
     if not matches_filters(msg, cfg.mail):
         return None
     message_id = str(msg.get("Message-ID") or "").strip() or make_msgid()
-    if db.donation_exists(message_id):
-        log.info("Already processed %s", message_id)
-        return None
-
     subject = str(msg.get("Subject", ""))
-    parsed = parse_donation(subject, email_text(msg), cfg.parsing)
+    donations = parse_email(subject, email_text(msg), cfg.parsing)
+
+    first = None
+    for i, parsed in enumerate(donations, 1):
+        key = message_id if len(donations) == 1 else f"{message_id}#{i}"
+        if db.donation_exists(key):
+            log.info("Already processed %s", key)
+            continue
+        donation_id = _record(cfg, db, notifier, key, subject, parsed)
+        first = first or donation_id
+    return first
+
+
+def _record(cfg: Config, db: Database, notifier: Notifier, key: str, subject: str,
+            parsed: ParsedDonation) -> int:
     routed = find_streamer(parsed.streamer_hint, db.streamers())
     routed_to = [routed.id] if routed else []
 
     if parsed.amount is None:
         donation_id = db.add_donation(
-            message_id=message_id, subject=subject, donor=parsed.donor, amount=None,
+            message_id=key, subject=subject, donor=parsed.donor, amount=None,
             currency=parsed.currency, message=parsed.message, routed_to=routed_to,
             status="unparsed", detail="amount not found - check parsing.amount regex")
         log.warning("Could not find an amount in email %r", subject)
         return donation_id
 
     donation_id = db.add_donation(
-        message_id=message_id, subject=subject, donor=parsed.donor, amount=str(parsed.amount),
+        message_id=key, subject=subject, donor=parsed.donor, amount=str(parsed.amount),
         currency=parsed.currency, message=parsed.message, routed_to=routed_to,
         status="pending", detail=None if routed else "no streamer matched - main only")
     log.info("Donation #%s: %s %s from %s -> %s", donation_id, parsed.amount,

@@ -127,6 +127,20 @@ def parse_amount(raw: str | None) -> Decimal | None:
     return value.quantize(Decimal("0.01")) if value > 0 else None
 
 
+def split_donations(text: str, rules: ParsingConfig) -> list[str]:
+    """The donation blocks of an email (the whole text if not split)."""
+    if not rules.split_on:
+        return [text]
+    starts = [m.start() for m in re.finditer(rules.split_on, text, _FLAGS)]
+    if not starts:
+        return [text]
+    return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
+
+
+def parse_email(subject: str, text: str, rules: ParsingConfig) -> list[ParsedDonation]:
+    return [parse_donation(subject, block, rules) for block in split_donations(text, rules)]
+
+
 def parse_donation(subject: str, text: str, rules: ParsingConfig) -> ParsedDonation:
     full = f"{subject}\n{text}"
     donor = _extract(rules.donor, full) or rules.default_donor

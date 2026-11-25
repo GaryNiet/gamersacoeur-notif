@@ -24,7 +24,7 @@ from .db import Database
 from .mailbox import matches_filters, open_mailbox
 from .notifier import Notifier
 from .progress import ProgressBar
-from .parsing import email_text, find_streamer, parse_donation
+from .parsing import email_text, find_streamer, parse_email
 from .web import connect_link, create_app
 from .worker import Worker
 
@@ -32,8 +32,6 @@ from .worker import Worker
 def describe(cfg, msg, streamers, show_text: bool) -> None:
     subject = str(msg.get("Subject", ""))
     text = email_text(msg)
-    d = parse_donation(subject, text, cfg.parsing)
-    st = find_streamer(d.streamer_hint, streamers)
     print(f"From     : {msg.get('From')}")
     print(f"Subject  : {subject}")
     if not matches_filters(msg, cfg.mail):
@@ -42,11 +40,16 @@ def describe(cfg, msg, streamers, show_text: bool) -> None:
             return
     else:
         print("Filters  : match -> treated as a donation")
-    print(f"Amount   : {d.amount} {d.currency}" if d.amount else "Amount   : NOT FOUND")
-    print(f"Donor    : {d.donor}")
-    print(f"Message  : {d.message}")
-    print(f"For      : {d.streamer_hint if cfg.parsing.streamer else '(whole email)'}")
-    print(f"Streamer : {st.name if st else 'no match -> main account only'}")
+    donations = parse_email(subject, text, cfg.parsing)
+    for i, d in enumerate(donations, 1):
+        if len(donations) > 1:
+            print(f"-- donation {i}/{len(donations)}")
+        st = find_streamer(d.streamer_hint, streamers)
+        print(f"Amount   : {d.amount} {d.currency}" if d.amount else "Amount   : NOT FOUND")
+        print(f"Donor    : {d.donor}")
+        print(f"Message  : {d.message}")
+        print(f"For      : {d.streamer_hint if cfg.parsing.streamer else '(whole email)'}")
+        print(f"Streamer : {st.name if st else 'no match -> main account only'}")
     if show_text:
         print(f"Main     : {', '.join(s.name for s in streamers if s.main) or '(none yet)'}")
         print("--- body text used for parsing ---")

@@ -36,8 +36,11 @@ mail:
   # Only emails matching ALL of these filters (any entry in each list,
   # case-insensitive substring) are treated as donations. Leave a list empty
   # to disable that filter.
-  from_contains: []
-  subject_contains: []
+  # Donation notifications come from the Chaîne du Bonheur iRaiser platform:
+  #   From: Chaîne du Bonheur <info@bonheur.ch>
+  #   Subject: [iRaiser] notification #167 : CAC
+  from_contains: ["info@bonheur.ch"]
+  subject_contains: ["[iRaiser] notification"]
   body_contains: ["A Streameur-euses:"]
   # false = on the very first start, ignore emails already in the mailbox.
   process_existing: false
@@ -48,15 +51,20 @@ mail:
 # Check them on a real email: save it as .eml and run
 #      python -m gamersacoeur_notif parse sample.eml
 #
-# Expected email (one field per line):
-#   Donateur: Jean, Dupont
+# Expected email:
+#   Montant collecté : 50 CHF        <- running total, NOT the donation amount
+#   Nombre de dons : 1
+#
+#   Donateur: Prénom, Nom
 #   Pseudo: JeanTheGamer
 #   A Streameur-euses: Alice
-#   Don: 20.00 CHF
-#   Date: ...
+#   Don: 50
+#   Date: 2026-11-25 18:06:19 Time: 11-25 2026 - 06h06
 #   Message: Courage !            (or the message on the next line)
 #   Postal Address: ...
 #   Email: ...
+# If an email lists several donations, each "Donateur:" block becomes its
+# own donation (split_on).
 parsing:
   amount: '^Don:[ \t]*([^\r\n]+)'
   # Shown on stream: the pseudo only. Add '^Donateur:[ \t]*([^,\r\n]+)' to
@@ -68,6 +76,7 @@ parsing:
   streamer: '^A Streameur-euses:[ \t]*([^\r\n]+)'
   currency: CHF
   default_donor: Anonyme
+  split_on: '^Donateur:'
 
 streamlabs:
   # Register an app at https://streamlabs.com/dashboard#/settings/api-settings
