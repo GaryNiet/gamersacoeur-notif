@@ -22,7 +22,7 @@ This doesn't touch the WordPress site. Check that it works (it can take a few mi
 ssh root@<vps-ip>          # or your user, with sudo
 
 sudo apt-get install -y git
-sudo git clone https://github.com/GaryNiet/gamersacoeur-notif /opt/gamersacoeur-notif
+sudo git clone -b claude/twint-donation-notifications-eloo7h https://github.com/GaryNiet/gamersacoeur-notif /opt/gamersacoeur-notif
 sudo bash /opt/gamersacoeur-notif/deploy/install.sh notif.yourdomain.ch
 ```
 
@@ -51,9 +51,11 @@ Set the mailbox, the email filters, the parsing rules and `main_accounts` (the S
 Check the mailbox connection. This reads the 5 latest emails and sends nothing:
 
 ```bash
-sudo -u gac env $(sudo grep -v '^#' /etc/gamersacoeur-notif/env | xargs) PYTHONPATH=/opt/gamersacoeur-notif \
-  /opt/gamersacoeur-notif/.venv/bin/python -m gamersacoeur_notif -c /etc/gamersacoeur-notif/config.yaml check-mail
+gac check-mail
+gac check-progress --no-upload     # progress bar values, without uploading
 ```
+
+`gac` runs any app command with the server's config and secrets.
 
 Then start the app and watch the logs:
 
@@ -71,7 +73,8 @@ You should see `Connected to imap...`. Open `https://notif.yourdomain.ch/admin` 
 | Logs | `sudo journalctl -u gamersacoeur-notif -f` |
 | Restart after editing the config | `sudo systemctl restart gamersacoeur-notif` |
 | Update to the latest code | `sudo bash /opt/gamersacoeur-notif/deploy/update.sh` |
-| Check the mailbox and parsing | the `check-mail` command above |
+| Check the mailbox and parsing | `gac check-mail` |
+| Upload the progress bar once | `gac check-progress` |
 | Backup (streamer tokens + donations) | `sudo cp /var/lib/gamersacoeur-notif/gamersacoeur.sqlite3 ~/backup.sqlite3` |
 
 The service starts on boot and restarts automatically if it crashes.

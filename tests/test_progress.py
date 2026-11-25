@@ -264,3 +264,11 @@ def test_admin_shows_progress(raw_cfg, db, notifier, store):
     page = app.test_client().get("/admin", headers=auth).get_data(as_text=True)
     assert "Barre de progression" in page and "1234.5" in page and "4000" in page
     assert "Mettre à jour maintenant" in page
+
+
+def test_charity_unexpected_error_keeps_last_value(db, store):
+    class Broken:
+        def get(self, url, timeout):
+            raise OSError("Could not find a suitable TLS CA certificate bundle")
+    b = ProgressBar(pcfg(), db, http=Broken(), ftp_factory=FakeFTP(store))
+    assert b.compute()["sl_charity"] == 0

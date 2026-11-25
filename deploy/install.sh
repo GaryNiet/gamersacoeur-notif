@@ -2,7 +2,7 @@
 # One-time setup on a fresh Debian 12+ / Ubuntu 22.04+ VPS. Safe to re-run.
 #
 #   sudo apt-get install -y git
-#   sudo git clone https://github.com/GaryNiet/gamersacoeur-notif /opt/gamersacoeur-notif
+#   sudo git clone -b claude/twint-donation-notifications-eloo7h https://github.com/GaryNiet/gamersacoeur-notif /opt/gamersacoeur-notif
 #   sudo bash /opt/gamersacoeur-notif/deploy/install.sh notif.example.ch
 #
 # Creates:
@@ -82,6 +82,8 @@ EOF
   echo "    admin password for https://$DOMAIN/admin : $adminpw"
 fi
 
+install -m 755 "$APP/deploy/gac.sh" /usr/local/bin/gac
+
 echo "==> systemd service"
 install -m 644 "$APP/deploy/gamersacoeur-notif.service" /etc/systemd/system/
 systemctl daemon-reload
@@ -112,9 +114,8 @@ if grep -q CHANGE_ME "$ETC/env"; then
 Almost done. Next:
   1. sudo nano $ETC/env           # Microsoft client secret, FTP password, Streamlabs id/secret
   2. sudo nano $ETC/config.yaml   # mailbox, parsing rules, main_accounts
-  3. Test the mailbox:
-     sudo -u gac env \$(sudo grep -v '^#' $ETC/env | xargs) PYTHONPATH=$APP \\
-       $APP/.venv/bin/python -m gamersacoeur_notif -c $ETC/config.yaml check-mail
+  3. gac check-mail                 # test the mailbox (sends nothing)
+     gac check-progress --no-upload   # check the progress bar values
   4. sudo systemctl restart gamersacoeur-notif
   5. sudo journalctl -u gamersacoeur-notif -f    # check the logs
 EOF

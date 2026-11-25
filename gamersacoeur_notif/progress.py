@@ -58,7 +58,7 @@ class ProgressBar:
             r = self.http.get(self.cfg.charity_url, timeout=15)
             r.raise_for_status()
             self._charity = int(r.json()["amount_raised"]) / 100
-        except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+        except Exception as exc:  # noqa: BLE001 - network, TLS, bad JSON...: keep last value
             log.warning("Streamlabs Charity total unavailable (%s), keeping %s", exc,
                         self._charity)
         return self._charity
